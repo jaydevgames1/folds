@@ -218,7 +218,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('404', style: GoogleFonts.dmSans(fontSize: 64, fontWeight: FontWeight.w800, color: const Color(0xFFE8E8E8))),
+                Image.asset(
+  'assets/404.png',
+  width: 120, // Adjust these numbers to scale the box perfectly
+  height: 120,
+  fit: BoxFit.contain,
+),
                 const SizedBox(height: 8),
                 Text('Puzzle Not Found',
                   style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.black)),
