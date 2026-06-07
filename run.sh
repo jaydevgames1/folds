@@ -1,1 +1,0 @@
-flutter build ios --simulator --debug && xcrun simctl install booted ~/Library/Developer/Xcode/DerivedData/Runner-*/Build/Products/Debug-iphonesimulator/Runner.app && xcrun simctl launch booted com.example.folds
