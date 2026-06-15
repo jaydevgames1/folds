@@ -5,6 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:ui';
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +51,12 @@ Future<void> _launchUrl(String url) async {
   }
 }
 
+class AppSettings {
+  static bool showTimer = true;
+  static bool enableMs = false;
+  static int movesDisplay = 0; // 0 = dots, 1 = numbers
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GAMEPLAY SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,13 +90,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
   void initState() {
     super.initState();
     _stopwatch = Stopwatch()..start();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        final m = _stopwatch.elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
-        final s = _stopwatch.elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
-        _timeDisplay = '$m:$s';
-      });
-    });
+    _startTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.initialPuzzleId != 'p1') {
         _loadPuzzle(widget.initialPuzzleId);
@@ -116,18 +122,30 @@ class _GameplayScreenState extends State<GameplayScreen> {
     super.dispose();
   }
 
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(milliseconds: 30), (_) {
+      setState(() {
+        _timeDisplay = _formatTime(_stopwatch.elapsedMilliseconds);
+      });
+    });
+  }
+
+  String _formatTime(int ms) {
+    final minutes = (ms ~/ 60000).remainder(60).toString().padLeft(2, '0');
+    final seconds = (ms ~/ 1000).remainder(60).toString().padLeft(2, '0');
+    if (AppSettings.enableMs) {
+      final hundredths = (ms ~/ 10).remainder(100).toString().padLeft(2, '0');
+      return '$minutes:$seconds.$hundredths';
+    }
+    return '$minutes:$seconds';
+  }
+
   void _resetTimer() {
     _stopwatch.reset();
     _stopwatch.start();
     _timer.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        final m = _stopwatch.elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
-        final s = _stopwatch.elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
-        _timeDisplay = '$m:$s';
-      });
-    });
-    setState(() => _timeDisplay = '00:00');
+    _startTimer();
+    setState(() => _timeDisplay = AppSettings.enableMs ? '00:00.00' : '00:00');
   }
 
   Future<void> _loadPuzzle(String id) async {
@@ -346,13 +364,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                               onTap: () {
                                 setState(() => _paused = false);
                                 _stopwatch.start();
-                                _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-                                  setState(() {
-                                    final m = _stopwatch.elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
-                                    final s = _stopwatch.elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
-                                    _timeDisplay = '$m:$s';
-                                  });
-                                });
+                                _startTimer();
                               },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -387,7 +399,10 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             child: ClipOval(child: CustomPaint(painter: _HomeIconPainter())),
                           ),
                         ),
-                        Text(_timeDisplay, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.black)),
+                        Opacity(
+                          opacity: AppSettings.showTimer ? 1.0 : 0.0,
+                          child: Text(_timeDisplay, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.black)),
+                        ),
                         GestureDetector(
                           onTap: () {
                             setState(() => _paused = true);
@@ -448,25 +463,35 @@ class _GameplayScreenState extends State<GameplayScreen> {
                   children: [
                     Text('Moves left:', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w500, color: Colors.black54)),
                     const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(_par, (i) {
-                        final filled = i < _moves;
-                        final overPar = _moves > _par;
-                        return Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 6),
-                          width: 18, height: 18,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: filled ? (overPar ? Colors.red.shade400 : Colors.black) : Colors.transparent,
-                            border: Border.all(
-                              color: filled ? (overPar ? Colors.red.shade400 : Colors.black) : Colors.black38,
-                              width: 2,
+                    if (AppSettings.movesDisplay == 0)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(_par, (i) {
+                          final filled = i < _moves;
+                          final overPar = _moves > _par;
+                          return Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6),
+                            width: 18, height: 18,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: filled ? (overPar ? Colors.red.shade400 : Colors.black) : Colors.transparent,
+                              border: Border.all(
+                                color: filled ? (overPar ? Colors.red.shade400 : Colors.black) : Colors.black38,
+                                width: 2,
+                              ),
                             ),
-                          ),
-                        );
-                      }),
-                    ),
+                          );
+                        }),
+                      )
+                    else
+                      Text(
+                        '$_moves/$_par',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: _moves > _par ? Colors.red.shade400 : Colors.black,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -1219,7 +1244,8 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
 
   String get _shareText {
     final id = widget.puzzleId.replaceAll(RegExp(r'^[a-z]+'), '');
-    return 'Folds\n#$id ${widget.puzzleTitle}\n${widget.timeDisplay} ⏳, 0 💡, ${widget.moves}/${widget.par} ➡️\nhttps://folds.jaydev.games/puzzles/pilot/${widget.puzzleId}';
+    final cleanTime = widget.timeDisplay.split('.').first;
+    return 'Folds\n#$id ${widget.puzzleTitle}\n$cleanTime ⏳, 0 💡, ${widget.moves}/${widget.par} ➡️\nhttps://folds.jaydev.games/puzzles/pilot/${widget.puzzleId}';
   }
 
   @override
@@ -1556,7 +1582,7 @@ class _StatsCard extends StatelessWidget {
           // Share button
           GestureDetector(
             onTap: () {
-              
+              Clipboard.setData(ClipboardData(text: shareText));
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Copied!',
@@ -1589,7 +1615,7 @@ class _StatsCard extends StatelessWidget {
               Expanded(
                 child: GestureDetector(
                   onTap: () {
-                    
+                    Clipboard.setData(ClipboardData(text: shareText));
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Copied to clipboard',
@@ -1961,233 +1987,111 @@ class StoreScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              child: _FoldsTopBar(title: 'STORE', onBack: () => Navigator.pop(context)),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            children: [
+              _FoldsTopBar(title: 'STORE', onBack: () => Navigator.pop(context)),
+              const SizedBox(height: 16),
+
+              // ── Expansion discount banner ─────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8E8E8),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black),
+                          children: const [
+                            TextSpan(text: 'Buy now', style: TextStyle(fontWeight: FontWeight.w800)),
+                            TextSpan(text: ' and you will be eligible for '),
+                            TextSpan(text: 'Expansion Discounts', style: TextStyle(fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('LEARN MORE',
+                        style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Stacked full-width packs ──────────────────
+              Expanded(
                 child: Column(
                   children: [
-                    const SizedBox(height: 8),
-
-                    // ── Full Fold Bundle ──────────────────────────
-                    _BundleCard(),
-                    const SizedBox(height: 8),
-
-                    // ── Expansion discount banner ─────────────────
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8E8E8),
-                        borderRadius: BorderRadius.circular(12),
+                    Expanded(
+                      child: _FullWidthStoreCard(
+                        title: 'NO ADS',
+                        subtitle: 'REMOVE ALL ADS FOREVER',
+                        price: '\$2.99',
+                        shape: _StoreShape.noAds,
+                        productId: 'games.jaydev.folds.no_ads',
                       ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: RichText(
-                              text: TextSpan(
-                                style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black),
-                                children: const [
-                                  TextSpan(text: 'Buy now', style: TextStyle(fontWeight: FontWeight.w800)),
-                                  TextSpan(text: ' and you will be eligible for '),
-                                  TextSpan(text: 'Expansion Discounts', style: TextStyle(fontWeight: FontWeight.w800)),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2C2C2C),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text('LEARN MORE',
-                              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // ── 2x2 packs ─────────────────────────────────
-                    Row(
-                      children: [
-                        Expanded(child: _PackStoreCard(
-                          title: 'RECTANGLE\nPACK',
-                          price: '\$2.99',
-                          shape: _StoreShape.rectangle,
-                          productId: 'games.jaydev.folds.rectangle_pack',
-                        )),
-                        const SizedBox(width: 12),
-                        Expanded(child: _PackStoreCard(
-                          title: 'RADIAL\nPACK',
-                          price: '\$2.99',
-                          shape: _StoreShape.circle,
-                          productId: 'games.jaydev.folds.radial_pack',
-                        )),
-                        const SizedBox(width: 12),
-                      ],
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(child: _PackStoreCard(
-                          title: 'HEXA\nPACK',
-                          price: '\$2.99',
-                          shape: _StoreShape.hexa,
-                          productId: 'games.jaydev.folds.hexa_pack',
-                        )),
-                        const SizedBox(width: 12),
-                        Expanded(child: _PackStoreCard(
-                          title: 'NO ADS',
-                          price: '\$2.99',
-                          shape: _StoreShape.noAds,
-                          productId: 'games.jaydev.folds.no_ads',
-                        )),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // ── Hints row ─────────────────────────────────
-                    Row(
-                      children: [
-                        Expanded(child: _HintCard(label: '5 HINTS', price: '\$0.99', productId: 'games.jaydev.folds.hints_5')),
-                        const SizedBox(width: 8),
-                        Expanded(child: _HintCard(label: '25 HINTS', price: '\$3.99', productId: 'games.jaydev.folds.hints_25')),
-                        const SizedBox(width: 8),
-                        Expanded(child: _HintCard(label: '∞ HINTS', price: '\$7.99', productId: 'games.jaydev.folds.hints_unlimited')),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Bundle card ───────────────────────────────────────────────────────────────
-class _BundleCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {},
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF2C2C2C),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Stack(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('The Full Fold',
-                        style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white)),
-                      const SizedBox(height: 8),
-                      _bundleItem('Rectangle Pack'),
-                      _bundleItem('Radial Pack'),
-                      _bundleItem('Hexa Pack'),
-                      _bundleItem('Pilot Pack'),
-                      _bundleItem('No Ads'),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // 2x2 icon grid
-                Column(
-                  children: [
-                    Row(
-                      children: [
-                        _BundleIcon(shape: _StoreShape.rectangle),
-                        const SizedBox(width: 6),
-                        _BundleIcon(shape: _StoreShape.circle),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        _BundleIcon(shape: _StoreShape.noAds),
-                        const SizedBox(width: 6),
-                        _BundleIcon(shape: _StoreShape.hexa),
-                      ],
+                    Expanded(
+                      child: _FullWidthStoreCard(
+                        title: 'RECTANGLE PACK',
+                        subtitle: '100 PUZZLES',
+                        price: '\$2.99',
+                        shape: _StoreShape.rectangle,
+                        productId: 'games.jaydev.folds.rectangle_pack',
+                      ),
                     ),
                   ],
                 ),
-              ],
-            ),
-            // Price badge
-            Positioned(
-              top: -8,
-              right: -8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFD465),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text('From \$9.99',
-                  style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black)),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+
+              // ── Hints row ──────────────────────────────────
+              Row(
+                children: [
+                  Expanded(child: _HintCard(label: '5 HINTS', price: '\$0.99', productId: 'games.jaydev.folds.hints_5')),
+                  const SizedBox(width: 8),
+                  Expanded(child: _HintCard(label: '25 HINTS', price: '\$3.99', productId: 'games.jaydev.folds.hints_25')),
+                  const SizedBox(width: 8),
+                  Expanded(child: _HintCard(label: '∞ HINTS', price: '\$7.99', productId: 'games.jaydev.folds.hints_unlimited')),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
   }
-
-  Widget _bundleItem(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Text(text,
-        style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.white70)),
-    );
-  }
 }
 
-class _BundleIcon extends StatelessWidget {
-  final _StoreShape shape;
-  const _BundleIcon({required this.shape});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 52, height: 52,
-      decoration: BoxDecoration(
-        color: const Color(0xFFd9d9d9),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Center(child: _ShapeWidget(shape: shape, size: 32)),
-    );
-  }
-}
-
-// ── Pack store card ───────────────────────────────────────────────────────────
 enum _StoreShape { rectangle, circle, hexa, noAds }
 
-class _PackStoreCard extends StatelessWidget {
+class _FullWidthStoreCard extends StatelessWidget {
   final String title;
+  final String subtitle;
   final String price;
   final _StoreShape shape;
   final String productId;
 
-  const _PackStoreCard({
-    required this.title, required this.price,
-    required this.shape, required this.productId,
+  const _FullWidthStoreCard({
+    required this.title,
+    required this.subtitle,
+    required this.price,
+    required this.shape,
+    required this.productId,
   });
 
   @override
@@ -2195,6 +2099,7 @@ class _PackStoreCard extends StatelessWidget {
     return GestureDetector(
       onTap: () {},
       child: Container(
+        width: double.infinity,
         decoration: BoxDecoration(
           color: const Color(0xFF2C2C2C),
           borderRadius: BorderRadius.circular(20),
@@ -2202,19 +2107,24 @@ class _PackStoreCard extends StatelessWidget {
         child: Stack(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.all(20),
+              child: Row(
                 children: [
-                  const SizedBox(height: 8),
-                  Text(title,
-                    style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
-                  const SizedBox(height: 6),
-                  Text('100 PUZZLES',
-                    style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white54)),
-                  const SizedBox(height: 16),
-                  Center(child: _ShapeWidget(shape: shape, size: 64)),
-                  const SizedBox(height: 8),
+                  _ShapeWidget(shape: shape, size: 64),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(title,
+                          style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                        const SizedBox(height: 4),
+                        Text(subtitle,
+                          style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white54)),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2222,7 +2132,7 @@ class _PackStoreCard extends StatelessWidget {
               top: -1,
               right: -1,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFD465),
                   borderRadius: const BorderRadius.only(
@@ -2240,7 +2150,6 @@ class _PackStoreCard extends StatelessWidget {
     );
   }
 }
-
 // ── Hint card ─────────────────────────────────────────────────────────────────
 class _HintCard extends StatelessWidget {
   final String label;
@@ -2430,9 +2339,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   int _theme = 0;
   bool _reducedMotion = false;
-  bool _showTimer = true;
-  bool _enableMs = false;
-  int _movesDisplay = 0;
+  bool _showTimer = AppSettings.showTimer;
+  bool _enableMs = AppSettings.enableMs;
+  int _movesDisplay = AppSettings.movesDisplay;
   bool _haptic = true;
   double _sfx = 0.55;
   double _trackVolume = 0.4;
@@ -2443,7 +2352,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _newPacksNotif = true;
   int _handedMode = 0;
   bool _optOutData = false;
-
+  TimeOfDay _notifTime = const TimeOfDay(hour: 8, minute: 0);
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2479,22 +2388,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _ToggleRow(
                         title: 'Show Timer',
                         value: _showTimer,
-                        onChanged: (v) => setState(() => _showTimer = v),
+                        onChanged: (v) => setState(() {
+                          _showTimer = v;
+                          AppSettings.showTimer = v;
+                          if (!v) {
+                            _enableMs = false;
+                            AppSettings.enableMs = false;
+                          }
+                        }),
                       ),
                       Padding(
                         padding: const EdgeInsets.only(left: 16),
                         child: _ToggleRow(
                           title: 'Enable Milliseconds',
                           titleSize: 15,
+                          enabled: _showTimer,
                           value: _enableMs,
-                          onChanged: (v) => setState(() => _enableMs = v),
+                          onChanged: (v) => setState(() {
+                            _enableMs = v;
+                            AppSettings.enableMs = v;
+                          }),
                         ),
                       ),
                       _SegmentedRow(
                         title: 'Moves Display',
                         options: const ['DOTS', 'NUMBERS'],
                         selected: _movesDisplay,
-                        onChanged: (i) => setState(() => _movesDisplay = i),
+                        onChanged: (i) => setState(() {
+                          _movesDisplay = i;
+                          AppSettings.movesDisplay = i;
+                        }),
                       ),
                       _ToggleRow(
                         title: 'Haptic Vibration',
@@ -2555,7 +2478,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               Text('Set Time',
                                 style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black)),
-                              const _TimeDisplay(hour: '08', minute: '00'),
+                              GestureDetector(
+                                onTap: () async {
+                                  final picked = await showTimePicker(
+                                    context: context,
+                                    initialTime: _notifTime,
+                                  );
+                                  if (picked != null) {
+                                    setState(() => _notifTime = picked);
+                                  }
+                                },
+                                child: _TimeDisplay(
+                                  hour: _notifTime.hour.toString().padLeft(2, '0'),
+                                  minute: _notifTime.minute.toString().padLeft(2, '0'),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -2638,48 +2575,53 @@ class _ToggleRow extends StatelessWidget {
   final String? subtitle;
   final double titleSize;
   final bool value;
+  final bool enabled;
   final ValueChanged<bool> onChanged;
 
   const _ToggleRow({
     required this.title,
     this.subtitle,
     this.titleSize = 20,
+    this.enabled = true,
     required this.value,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                  style: GoogleFonts.dmSans(fontSize: titleSize, fontWeight: FontWeight.w800, color: Colors.black)),
-                if (subtitle != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(subtitle!,
-                      style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
-                  ),
-              ],
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.4,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                    style: GoogleFonts.dmSans(fontSize: titleSize, fontWeight: FontWeight.w800, color: Colors.black)),
+                  if (subtitle != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(subtitle!,
+                        style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
+                    ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: Colors.white,
-            activeTrackColor: const Color(0xFF7BD957),
-            inactiveThumbColor: Colors.white,
-            inactiveTrackColor: const Color(0xFFBDBDBD),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Switch(
+              value: value,
+              onChanged: enabled ? onChanged : null,
+              activeColor: Colors.white,
+              activeTrackColor: const Color(0xFF7BD957),
+              inactiveThumbColor: Colors.white,
+              inactiveTrackColor: const Color(0xFFBDBDBD),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3356,8 +3298,30 @@ class _ProfileTabBar extends StatelessWidget {
   }
 }
 
-class _ProfileTab extends StatelessWidget {
+class _ProfileTab extends StatefulWidget {
   const _ProfileTab({super.key});
+
+  @override
+  State<_ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<_ProfileTab> {
+  File? _avatarImage;
+  final TextEditingController _nameController = TextEditingController(text: 'Puzzle Apprentice');
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (picked != null) {
+      setState(() => _avatarImage = File(picked.path));
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3369,26 +3333,45 @@ class _ProfileTab extends StatelessWidget {
             children: [
               Container(
                 width: 120, height: 120,
-                decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFEFEFEF)),
-                child: const Icon(Icons.person_rounded, color: Color(0xFFC4C4C4), size: 72),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFFEFEFEF),
+                  image: _avatarImage != null
+                      ? DecorationImage(image: FileImage(_avatarImage!), fit: BoxFit.cover)
+                      : null,
+                ),
+                child: _avatarImage == null
+                    ? const Icon(Icons.person_rounded, color: Color(0xFFC4C4C4), size: 72)
+                    : null,
               ),
               Positioned(
                 right: 0, top: 4,
-                child: Container(
-                  width: 32, height: 32,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2C2C2C),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+                child: GestureDetector(
+                  onTap: _pickImage,
+                  child: Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C2C2C),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(Icons.edit_rounded, color: Colors.white, size: 16),
                   ),
-                  child: const Icon(Icons.edit_rounded, color: Colors.white, size: 16),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          Text('Puzzle Apprentice',
-            style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black)),
+          TextField(
+            controller: _nameController,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black),
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
           const SizedBox(height: 4),
           Text('JOINED 18 APRIL 2026',
             style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black38, letterSpacing: 1)),
@@ -3457,11 +3440,15 @@ class _ProfileTab extends StatelessWidget {
                   Text('to',
                     style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black54)),
                   const SizedBox(width: 8),
-                  Container(
-                    width: 28, height: 28,
+                  Stack(
                     alignment: Alignment.center,
-                    decoration: const BoxDecoration(color: Color(0xFF2C2C2C), shape: BoxShape.circle),
-                    child: Text('6', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+                    children: [
+                      const Icon(Icons.shield_rounded, color: Color(0xFFC4C4C4), size: 32),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 1),
+                        child: Text('6', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -3477,7 +3464,21 @@ class _ProfileTab extends StatelessWidget {
               Text('Share Game',
                 style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
               GestureDetector(
-                onTap: () {},
+                onTap: () {
+                  Clipboard.setData(const ClipboardData(
+                    text: "I'm playing Folds! Check it out: https://folds.jaydev.games",
+                  ));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Link copied!',
+                        style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                      backgroundColor: const Color(0xFF2C2C2C),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  );
+                },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
