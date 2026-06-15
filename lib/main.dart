@@ -1,5 +1,5 @@
 import 'dart:ui';
-
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -36,6 +36,13 @@ void _pushFade(BuildContext context, Widget screen) {
         FadeTransition(opacity: animation, child: child),
     transitionDuration: const Duration(milliseconds: 250),
   ));
+}
+
+Future<void> _launchUrl(String url) async {
+  final uri = Uri.parse(url);
+  if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    debugPrint('Could not launch $url');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -496,7 +503,16 @@ class _GameplayScreenState extends State<GameplayScreen> {
                                     },
                                   ),
                                   const SizedBox(width: 12),
-                                  _SixSMCard(label: 'Profile', icon: Icons.account_circle_rounded, onTap: () {}),
+                                  _SixSMCard(
+                                    label: 'Profile',
+                                    icon: Icons.account_circle_rounded,
+                                    onTap: () {
+                                      _closeMenu();
+                                      Future.delayed(const Duration(milliseconds: 260), () {
+                                        _pushFade(context, const ProfileScreen());
+                                      });
+                                    },
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 12),
@@ -513,15 +529,42 @@ class _GameplayScreenState extends State<GameplayScreen> {
                                     },
                                   ),
                                   const SizedBox(width: 12),
-                                  _SixSMCard(label: 'Settings', icon: Icons.settings_rounded, onTap: () {}),
+                                  _SixSMCard(
+                                    label: 'Settings',
+                                    icon: Icons.settings_rounded,
+                                    onTap: () {
+                                      _closeMenu();
+                                      Future.delayed(const Duration(milliseconds: 260), () {
+                                        _pushFade(context, const SettingsScreen());
+                                      });
+                                    },
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 12),
                               Row(
                                 children: [
-                                  _SixSMCard(label: 'Socials', icon: Icons.favorite_rounded, onTap: () {}),
+                                  _SixSMCard(
+                                    label: 'Socials',
+                                    icon: Icons.favorite_rounded,
+                                    onTap: () {
+                                      _closeMenu();
+                                      Future.delayed(const Duration(milliseconds: 260), () {
+                                        _pushFade(context, const SocialsScreen());
+                                      });
+                                    },
+                                  ),
                                   const SizedBox(width: 12),
-                                  _SixSMCard(label: 'Credits', icon: Icons.handshake_rounded, onTap: () {}),
+                                  _SixSMCard(
+                                    label: 'Credits',
+                                    icon: Icons.handshake_rounded,
+                                    onTap: () {
+                                      _closeMenu();
+                                      Future.delayed(const Duration(milliseconds: 260), () {
+                                        _pushFade(context, const CreditsScreen());
+                                      });
+                                    },
+                                  ),
                                 ],
                               ),
                             ],
@@ -572,7 +615,7 @@ class PuzzlesMenuScreen extends StatelessWidget {
                           const SizedBox(height: 4),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(color: const Color(0xFF444444), borderRadius: BorderRadius.circular(6)),
+                            decoration: BoxDecoration(color: const Color(0xFFd9d9d9), borderRadius: BorderRadius.circular(6)),
                             child: Text('#551', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white70)),
                           ),
                         ],
@@ -588,29 +631,56 @@ class PuzzlesMenuScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              Expanded(
-                child: GridView.count(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 14,
-                  mainAxisSpacing: 14,
-                  childAspectRatio: 0.72,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _MenuPackCard(
-                      title: 'PILOT PACK',
-                      subtitle: '100 PUZZLES',
-                      completedPuzzles: 79,
-                      totalPuzzles: 100,
-                      shapeType: _PackShapeType.square,
-                      onPlay: () => Navigator.pop(context),
-                      onHome: () => _pushFade(context, const PilotPackDetailScreen()),
-                    ),
-                    _MenuPackCard(title: 'RECTANGLE PACK', subtitle: '100 PUZZLES', completedPuzzles: 0, totalPuzzles: 100, shapeType: _PackShapeType.rectangle, onPlay: () {}, onHome: () {}),
-                    _MenuPackCard(title: 'RADIAL PACK', subtitle: '100 PUZZLES', completedPuzzles: 0, totalPuzzles: 100, shapeType: _PackShapeType.circle, onPlay: () {}, onHome: () {}),
-                    _MenuPackCard(title: 'HEXA PACK', subtitle: '100 PUZZLES', completedPuzzles: 0, totalPuzzles: 100, shapeType: _PackShapeType.hexagon, onPlay: () {}, onHome: () {}),
-                  ],
-                ),
-              ),
+              // Replace the Expanded GridView.count with:
+Expanded(
+  child: Column(
+    children: [
+      Expanded(
+        child: _MenuPackCard(
+          title: 'PILOT PACK',
+          subtitle: '100 PUZZLES',
+          completedPuzzles: 79,
+          totalPuzzles: 100,
+          shapeType: _PackShapeType.square,
+          onPlay: () => Navigator.pop(context),
+          onHome: () => _pushFade(context, const PilotPackDetailScreen()),
+        ),
+      ),
+      const SizedBox(height: 14),
+      Expanded(
+        child: _MenuPackCard(
+          title: 'RECTANGLE PACK',
+          subtitle: '100 PUZZLES',
+          completedPuzzles: 0,
+          totalPuzzles: 100,
+          shapeType: _PackShapeType.rectangle,
+          onPlay: () {},
+          onHome: () {},
+        ),
+      ),
+      const SizedBox(height: 14),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2C),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Center(
+          child: Text(
+            'MORE PUZZLES COMING SOON!',
+            style: GoogleFonts.dmSans(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ),
+    ],
+  ),
+),
             ],
           ),
         ),
@@ -636,29 +706,23 @@ class PilotPackDetailScreen extends StatelessWidget {
             children: [
               _FoldsTopBar(title: 'PILOT PACK', onBack: () => Navigator.pop(context)),
               const SizedBox(height: 24),
-
-              // 4x4 — wide full-width card
               Expanded(
-                flex: 2,
-                child: _SubPackCard(
-                  label: '4x4',
-                  puzzleCount: '50 PUZZLES',
-                  completed: 39,
-                  total: 50,
-                  gridSize: 4,
-                  onPlay: () => Navigator.pop(context),
-                  onHome: () => _pushFade(context, const PuzzleSelectorScreen(packName: '4x4', totalPuzzles: 50, idPrefix: 'p', idOffset: 0)),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // 6x6 and 8x8 side by side
-              Expanded(
-                flex: 2,
-                child: Row(
+                child: Column(
                   children: [
                     Expanded(
-                      child: _SubPackCard(
+                      child: _PuzzleSizeCard(
+                        label: '4x4',
+                        puzzleCount: '50 PUZZLES',
+                        completed: 39,
+                        total: 50,
+                        gridSize: 4,
+                        onPlay: () => Navigator.pop(context),
+                        onHome: () => _pushFade(context, const PuzzleSelectorScreen(packName: '4x4', totalPuzzles: 50, idPrefix: 'p', idOffset: 0)),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: _PuzzleSizeCard(
                         label: '6x6',
                         puzzleCount: '30 PUZZLES',
                         completed: 0,
@@ -668,9 +732,9 @@ class PilotPackDetailScreen extends StatelessWidget {
                         onHome: () => _pushFade(context, const PuzzleSelectorScreen(packName: '6x6', totalPuzzles: 30, idPrefix: 'p', idOffset: 50)),
                       ),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(height: 14),
                     Expanded(
-                      child: _SubPackCard(
+                      child: _PuzzleSizeCard(
                         label: '8x8',
                         puzzleCount: '20 PUZZLES',
                         completed: 0,
@@ -886,7 +950,7 @@ class _BackButton extends StatelessWidget {
   }
 }
 
-class _SubPackCard extends StatelessWidget {
+class _PuzzleSizeCard extends StatelessWidget {
   final String label;
   final String puzzleCount;
   final int completed;
@@ -895,7 +959,7 @@ class _SubPackCard extends StatelessWidget {
   final VoidCallback onPlay;
   final VoidCallback onHome;
 
-  const _SubPackCard({
+  const _PuzzleSizeCard({
     required this.label,
     required this.puzzleCount,
     required this.completed,
@@ -908,93 +972,126 @@ class _SubPackCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = total > 0 ? completed / total : 0.0;
+    final pct = (progress * 100).toInt();
+
     return Container(
       decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
-      child: Column(
-        mainAxisSize: MainAxisSize.max,
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
+      padding: const EdgeInsets.all(16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final panelSize = constraints.maxHeight;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(label, style: GoogleFonts.dmSans(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
-                        Text(puzzleCount, style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white54)),
-                        const SizedBox(height: 10),
+                        Text(label,
+                          style: GoogleFonts.dmSans(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.white)),
+                        const SizedBox(height: 2),
+                        Text(puzzleCount,
+                          style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white54)),
+                      ],
+                    ),
+                    Stack(
+                      children: [
                         Container(
-                          height: 6,
-                          decoration: BoxDecoration(color: const Color(0xFF444444), borderRadius: BorderRadius.circular(3)),
-                          child: FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: progress,
-                            child: Container(
-                              decoration: BoxDecoration(color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(3)),
-                            ),
+                          height: 24,
+                          decoration: BoxDecoration(color: const Color(0xFFd9d9d9), borderRadius: BorderRadius.circular(8)),
+                          child: Row(
+                            children: [
+                              if (pct > 0)
+                                Expanded(
+                                  flex: pct,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFD465),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                ),
+                              Expanded(flex: 100 - pct, child: const SizedBox()),
+                            ],
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: Center(
+                            child: Text('$pct%',
+                              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.black54)),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  _MiniGrid(size: gridSize),
-                ],
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: onPlay,
+                          child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
+                        ),
+                        const SizedBox(width: 24),
+                        GestureDetector(
+                          onTap: onHome,
+                          child: const Icon(Icons.home_rounded, color: Colors.white, size: 26),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-          Container(
-            height: 44,
-            decoration: const BoxDecoration(
-              color: Color(0xFF222222),
-              borderRadius: BorderRadius.only(bottomLeft: Radius.circular(20), bottomRight: Radius.circular(20)),
-            ),
-            child: Row(
-              children: [
-                Expanded(child: IconButton(icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24), onPressed: onPlay)),
-                Container(width: 1, height: 20, color: const Color(0xFF333333)),
-                Expanded(child: IconButton(icon: const Icon(Icons.home_rounded, color: Colors.white, size: 20), onPressed: onHome)),
-              ],
-            ),
-          ),
-        ],
+              const SizedBox(width: 14),
+              _PreviewGridPanel(gridSize: gridSize, size: panelSize),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _MiniGrid extends StatelessWidget {
-  final int size;
-  const _MiniGrid({required this.size});
+class _PreviewGridPanel extends StatelessWidget {
+  final int gridSize;
+  final double size;
+  const _PreviewGridPanel({required this.gridSize, required this.size});
 
   @override
   Widget build(BuildContext context) {
-    final cellSize = size == 4 ? 12.0 : size == 6 ? 9.0 : 7.0;
-    const gap = 2.0;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(size, (row) => Padding(
-        padding: EdgeInsets.only(bottom: row < size - 1 ? gap : 0),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(size, (col) => Padding(
-            padding: EdgeInsets.only(right: col < size - 1 ? gap : 0),
-            child: Container(
-              width: cellSize, height: cellSize,
-              decoration: BoxDecoration(
-                color: (row + col) % 2 == 0 ? Colors.white : const Color(0xFF555555),
-                borderRadius: BorderRadius.circular(2),
+    const gap = 4.0;
+    final cellSize = (size - 16 - gap * (gridSize - 1)) / gridSize;
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFd9d9d9),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(gridSize, (row) => Padding(
+          padding: EdgeInsets.only(bottom: row < gridSize - 1 ? gap : 0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(gridSize, (col) => Padding(
+              padding: EdgeInsets.only(right: col < gridSize - 1 ? gap : 0),
+              child: Container(
+                width: cellSize, height: cellSize,
+                decoration: BoxDecoration(
+                  color: (row + col) % 2 == 0 ? Colors.white : const Color(0xFF2C2C2C),
+                  borderRadius: BorderRadius.circular(cellSize * 0.22),
+                ),
               ),
-            ),
-          )),
-        ),
-      )),
+            )),
+          ),
+        )),
+      ),
     );
   }
 }
-
 // THE FOLD ANIMATION i dont think this will optimise very well but tis okay
 // ─────────────────────────────────────────────────────────────────────────────
 // FOLD COMPLETION ANIMATOR
@@ -1720,50 +1817,63 @@ class _MenuPackCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = totalPuzzles > 0 ? completedPuzzles / totalPuzzles : 0.0;
+    final pct = (progress * 100).toInt();
+
+    // Grid preview config per shape type
+    final int gridCols = shapeType == _PackShapeType.rectangle ? 2 : 2;
+    final int gridRows = shapeType == _PackShapeType.rectangle ? 3 : 2;
+
+    Widget gridPreview = Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFD9D9D9),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(gridRows, (row) => Padding(
+          padding: EdgeInsets.only(bottom: row < gridRows - 1 ? 6 : 0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(gridCols, (col) => Padding(
+              padding: EdgeInsets.only(right: col < gridCols - 1 ? 6 : 0),
+              child: Container(
+                width: 22, height: 22,
+                decoration: BoxDecoration(
+                  color: (row + col) % 2 == 0 ? Colors.white : const Color(0xFF2C2C2C),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+            )),
+          ),
+        )),
+      ),
+    );
+
     return Container(
       decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(24)),
       child: Column(
         children: [
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 76, height: 76,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF444444),
-                      borderRadius: shapeType == _PackShapeType.circle ? null : BorderRadius.circular(16),
-                      shape: shapeType == _PackShapeType.circle ? BoxShape.circle : BoxShape.rectangle,
-                    ),
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: Text(
-                          title.replaceAll(' PACK', '\nPACK'),
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, height: 1.1),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Text(subtitle, style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white60)),
-                  Container(
-                    height: 8, width: double.infinity,
-                    decoration: BoxDecoration(color: const Color(0xFF444444), borderRadius: BorderRadius.circular(4)),
-                    child: Row(
+                  // Grid preview replaces the text box
+                  gridPreview,
+                  const SizedBox(width: 16),
+                  // Title + subtitle centred vertically on right side
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          flex: (progress * 100).toInt(),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: progress > 0 ? const Color(0xFFFFD465) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                        ),
-                        Expanded(flex: ((1.0 - progress) * 100).toInt(), child: const SizedBox()),
+                        Text(title,
+                          style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                        const SizedBox(height: 4),
+                        Text(subtitle,
+                          style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white54)),
                       ],
                     ),
                   ),
@@ -1771,17 +1881,51 @@ class _MenuPackCard extends StatelessWidget {
               ),
             ),
           ),
+          // Progress bar spanning full card width, above bottom bar
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Stack(
+              children: [
+                Container(
+                  height: 28,
+                  decoration: BoxDecoration(color: const Color(0xFF44444), borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    children: [
+                      if (pct > 0)
+                        Expanded(
+                          flex: pct,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD465),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      Expanded(flex: 100 - pct, child: const SizedBox()),
+                    ],
+                  ),
+                ),
+                Positioned.fill(
+                  child: Center(
+                    child: Text('$pct%',
+                      style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black54)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Bottom action bar
           Container(
-            height: 44,
+            height: 52,
             decoration: const BoxDecoration(
               color: Color(0xFF222222),
               borderRadius: BorderRadius.only(bottomLeft: Radius.circular(24), bottomRight: Radius.circular(24)),
             ),
             child: Row(
               children: [
-                Expanded(child: IconButton(icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24), onPressed: onPlay)),
-                Container(width: 1, height: 20, color: const Color(0xFF333333)),
-                Expanded(child: IconButton(icon: const Icon(Icons.home_rounded, color: Colors.white, size: 20), onPressed: onHome)),
+                Expanded(child: IconButton(icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28), onPressed: onPlay)),
+                Container(width: 1, height: 24, color: const Color(0xFF333333)),
+                Expanded(child: IconButton(icon: const Icon(Icons.home_rounded, color: Colors.white, size: 24), onPressed: onHome)),
               ],
             ),
           ),
@@ -1886,6 +2030,7 @@ class StoreScreen extends StatelessWidget {
                           shape: _StoreShape.circle,
                           productId: 'games.jaydev.folds.radial_pack',
                         )),
+                        const SizedBox(width: 12),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -1913,7 +2058,7 @@ class StoreScreen extends StatelessWidget {
                       children: [
                         Expanded(child: _HintCard(label: '5 HINTS', price: '\$0.99', productId: 'games.jaydev.folds.hints_5')),
                         const SizedBox(width: 8),
-                        Expanded(child: _HintCard(label: '25 HINTS', price: '\$3.99', badge: '5x VALUE!!', productId: 'games.jaydev.folds.hints_25')),
+                        Expanded(child: _HintCard(label: '25 HINTS', price: '\$3.99', productId: 'games.jaydev.folds.hints_25')),
                         const SizedBox(width: 8),
                         Expanded(child: _HintCard(label: '∞ HINTS', price: '\$7.99', productId: 'games.jaydev.folds.hints_unlimited')),
                       ],
@@ -2023,7 +2168,7 @@ class _BundleIcon extends StatelessWidget {
     return Container(
       width: 52, height: 52,
       decoration: BoxDecoration(
-        color: const Color(0xFF444444),
+        color: const Color(0xFFd9d9d9),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Center(child: _ShapeWidget(shape: shape, size: 32)),
@@ -2271,4 +2416,1142 @@ class _NoBanPainter extends CustomPainter {
     );
   }
   @override bool shouldRepaint(_) => false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTINGS SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  int _theme = 0;
+  bool _reducedMotion = false;
+  bool _showTimer = true;
+  bool _enableMs = false;
+  int _movesDisplay = 0;
+  bool _haptic = true;
+  double _sfx = 0.55;
+  double _trackVolume = 0.4;
+  bool _isPlaying = false;
+  int _frameRate = 0;
+  bool _staticBg = false;
+  bool _dailyNotif = true;
+  bool _newPacksNotif = true;
+  int _handedMode = 0;
+  bool _optOutData = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            children: [
+              _FoldsTopBar(title: 'SETTINGS', onBack: () => Navigator.pop(context)),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 16, bottom: 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SectionHeader('VISUAL'),
+                      _SegmentedRow(
+                        title: 'Theme',
+                        hint: 'Based off of local time',
+                        options: const ['LIGHT', 'DARK', 'AUTO'],
+                        selected: _theme,
+                        onChanged: (i) => setState(() => _theme = i),
+                      ),
+                      _ToggleRow(
+                        title: 'Reduced Motion',
+                        subtitle: 'Disables aesthetic animations',
+                        value: _reducedMotion,
+                        onChanged: (v) => setState(() => _reducedMotion = v),
+                      ),
+
+                      _SectionHeader('GAMEPLAY'),
+                      _ToggleRow(
+                        title: 'Show Timer',
+                        value: _showTimer,
+                        onChanged: (v) => setState(() => _showTimer = v),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 16),
+                        child: _ToggleRow(
+                          title: 'Enable Milliseconds',
+                          titleSize: 15,
+                          value: _enableMs,
+                          onChanged: (v) => setState(() => _enableMs = v),
+                        ),
+                      ),
+                      _SegmentedRow(
+                        title: 'Moves Display',
+                        options: const ['DOTS', 'NUMBERS'],
+                        selected: _movesDisplay,
+                        onChanged: (i) => setState(() => _movesDisplay = i),
+                      ),
+                      _ToggleRow(
+                        title: 'Haptic Vibration',
+                        value: _haptic,
+                        onChanged: (v) => setState(() => _haptic = v),
+                      ),
+
+                      _SectionHeader('AUDIO'),
+                      _SliderRow(
+                        title: 'SFX',
+                        value: _sfx,
+                        onChanged: (v) => setState(() => _sfx = v),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('Current Track',
+                        style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+                      const SizedBox(height: 10),
+                      _TrackPlayerCard(
+                        isPlaying: _isPlaying,
+                        onPlayToggle: () => setState(() => _isPlaying = !_isPlaying),
+                        volume: _trackVolume,
+                        onVolumeChanged: (v) => setState(() => _trackVolume = v),
+                      ),
+
+                      _SectionHeader('ACCOUNT & DATA'),
+                      _ActionPill(label: 'Sync Progress', onTap: () {}),
+                      const SizedBox(height: 10),
+                      _ActionPill(label: 'Restore Purchases', onTap: () {}),
+                      const SizedBox(height: 10),
+                      _ActionPill(label: 'Reset Progress', textColor: const Color(0xFFE6543A), onTap: () {}),
+
+                      _SectionHeader('PERFORMANCE'),
+                      _SegmentedRow(
+                        title: 'Frame Rate Cap',
+                        subtitle: 'Maximum frame rate. Affects smoothness & feel',
+                        options: const ['30 FPS', '60 FPS', '120 FPS'],
+                        selected: _frameRate,
+                        onChanged: (i) => setState(() => _frameRate = i),
+                      ),
+                      _ToggleRow(
+                        title: 'Static Backgrounds',
+                        value: _staticBg,
+                        onChanged: (v) => setState(() => _staticBg = v),
+                      ),
+
+                      _SectionHeader('NOTIFICATIONS'),
+                      _ToggleRow(
+                        title: 'Daily Fold Notif',
+                        subtitle: 'Sends a daily reminder to do your daily Folds!',
+                        value: _dailyNotif,
+                        onChanged: (v) => setState(() => _dailyNotif = v),
+                      ),
+                      if (_dailyNotif)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, top: 8, bottom: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Set Time',
+                                style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black)),
+                              const _TimeDisplay(hour: '08', minute: '00'),
+                            ],
+                          ),
+                        ),
+                      _ToggleRow(
+                        title: 'New Packs Notif',
+                        subtitle: 'Notifies you if any new packs come out!',
+                        value: _newPacksNotif,
+                        onChanged: (v) => setState(() => _newPacksNotif = v),
+                      ),
+
+                      _SectionHeader('ADVANCED INPUT'),
+                      _SegmentedRow(
+                        title: 'Handed Mode',
+                        subtitle: 'Flips orientation for landscape puzzles',
+                        options: const ['RIGHT', 'LEFT'],
+                        selected: _handedMode,
+                        onChanged: (i) => setState(() => _handedMode = i),
+                      ),
+
+                      _SectionHeader('PRIVACY & SECURITY'),
+                      _ToggleRow(
+                        title: 'Opt Out of Data Usage',
+                        subtitle: 'Disables using your data for personal & general enhancement',
+                        value: _optOutData,
+                        onChanged: (v) => setState(() => _optOutData = v),
+                      ),
+                      _OpenRow(title: 'ToS and Privacy Policy', onTap: () => _launchUrl('https://jaydev.games/privacy')),
+
+                      _SectionHeader('ABOUT & VERSIONING'),
+                      _OpenRow(title: 'Credits', onTap: () => _pushFade(context, const CreditsScreen())),
+                      _OpenRow(title: 'Folds Website', onTap: () => _launchUrl('https://folds.jaydev.games')),
+                      _OpenRow(title: 'Socials & YouTube', onTap: () => _pushFade(context, const SocialsScreen())),
+                      const SizedBox(height: 16),
+                      _ActionPill(label: 'Reset All Settings', textColor: const Color(0xFFE6543A), onTap: () {}),
+                      const SizedBox(height: 28),
+                      Center(
+                        child: Text('version 1.0.0',
+                          style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
+                      ),
+                      const SizedBox(height: 4),
+                      Center(
+                        child: Text('Made with ❤️ by JayDev Games',
+                          style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black54)),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        '"If you have a dream, just go for it. Even though you\'ll never know where you\'ll end up, and even though you never know how exactly you\'ll get there; The real journey is not how you get there, but what you acheive and learn before you do."',
+                        style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87, height: 1.4),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('–JayDev',
+                        style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black54)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  const _SectionHeader(this.label);
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 20, bottom: 8),
+      child: Text(label,
+        style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black38, letterSpacing: 1.2)),
+    );
+  }
+}
+
+class _ToggleRow extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final double titleSize;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleRow({
+    required this.title,
+    this.subtitle,
+    this.titleSize = 20,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                  style: GoogleFonts.dmSans(fontSize: titleSize, fontWeight: FontWeight.w800, color: Colors.black)),
+                if (subtitle != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(subtitle!,
+                      style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: Colors.white,
+            activeTrackColor: const Color(0xFF7BD957),
+            inactiveThumbColor: Colors.white,
+            inactiveTrackColor: const Color(0xFFBDBDBD),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentedRow extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final String? hint;
+  final List<String> options;
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  const _SegmentedRow({
+    required this.title,
+    this.subtitle,
+    this.hint,
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                      style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+                    if (subtitle != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(subtitle!,
+                          style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              _SegmentedControl(options: options, selected: selected, onChanged: onChanged),
+            ],
+          ),
+          if (hint != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(hint!,
+                  style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black26)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentedControl extends StatelessWidget {
+  final List<String> options;
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  const _SegmentedControl({required this.options, required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFEFEF),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(options.length, (i) {
+          final isSelected = i == selected;
+          return GestureDetector(
+            onTap: () => onChanged(i),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFD6D6D6) : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(options[i],
+                style: GoogleFonts.dmSans(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                  color: isSelected ? Colors.black : Colors.black38,
+                  letterSpacing: 0.5,
+                )),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _SliderRow extends StatelessWidget {
+  final String title;
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  const _SliderRow({required this.title, required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 70,
+            child: Text(title,
+              style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: const Color(0xFF2C2C2C),
+                inactiveTrackColor: const Color(0xFFBDBDBD),
+                thumbColor: const Color(0xFFE8E8E8),
+                overlayColor: Colors.black12,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 11),
+                trackHeight: 6,
+              ),
+              child: Slider(value: value, onChanged: onChanged),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrackPlayerCard extends StatelessWidget {
+  final bool isPlaying;
+  final VoidCallback onPlayToggle;
+  final double volume;
+  final ValueChanged<double> onVolumeChanged;
+
+  const _TrackPlayerCard({
+    required this.isPlaying,
+    required this.onPlayToggle,
+    required this.volume,
+    required this.onVolumeChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 56, height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8E8E8),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.music_note_rounded, color: Color(0xFF2C2C2C), size: 28),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Thrifty & Swifty',
+                    style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
+                  Text('Broke Making Bank',
+                    style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black38)),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: onPlayToggle,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 150),
+                child: Icon(
+                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  key: ValueKey(isPlaying),
+                  color: Colors.black,
+                  size: 30,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Icon(Icons.volume_down_rounded, color: Colors.black38, size: 18),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: const Color(0xFF2C2C2C),
+                  inactiveTrackColor: const Color(0xFFBDBDBD),
+                  thumbColor: const Color(0xFFE8E8E8),
+                  overlayColor: Colors.black12,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                  trackHeight: 4,
+                ),
+                child: Slider(value: volume, onChanged: onVolumeChanged),
+              ),
+            ),
+            const Icon(Icons.volume_up_rounded, color: Colors.black38, size: 18),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ActionPill extends StatelessWidget {
+  final String label;
+  final Color? textColor;
+  final VoidCallback onTap;
+
+  const _ActionPill({required this.label, this.textColor, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFEFEF),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Center(
+          child: Text(label,
+            style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: textColor ?? Colors.black26)),
+        ),
+      ),
+    );
+  }
+}
+
+class _OpenRow extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  const _OpenRow({required this.title, this.subtitle, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                  style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+                if (subtitle != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(subtitle!,
+                      style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
+                  ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFEFEF),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text('OPEN',
+                style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimeDisplay extends StatelessWidget {
+  final String hour;
+  final String minute;
+  const _TimeDisplay({required this.hour, required this.minute});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _digitBox(hour[0]),
+        const SizedBox(width: 4),
+        _digitBox(hour[1]),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Text(':', style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+        ),
+        _digitBox(minute[0]),
+        const SizedBox(width: 4),
+        _digitBox(minute[1]),
+      ],
+    );
+  }
+
+  Widget _digitBox(String d) {
+    return Container(
+      width: 28, height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(d, style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CREDITS SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+class CreditsScreen extends StatelessWidget {
+  const CreditsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            children: [
+              _FoldsTopBar(title: 'CREDITS', onBack: () => Navigator.pop(context)),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 20, bottom: 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _CreditsCard(role: 'Design & Development', name: 'JayDev'),
+                      const SizedBox(height: 12),
+                      _CreditsCard(role: 'Music & Sound Design', name: 'Thrifty & Swifty'),
+                      const SizedBox(height: 12),
+                      _CreditsCard(role: 'Fonts', name: 'DM Sans — Google Fonts'),
+                      const SizedBox(height: 12),
+                      _CreditsCard(role: 'Backend', name: 'Supabase'),
+                      const SizedBox(height: 12),
+                      _CreditsCard(role: 'Special Thanks', name: 'Everyone who playtested Folds'),
+                      const SizedBox(height: 28),
+                      Center(
+                        child: Text('Made with ❤️ by JayDev Games',
+                          style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black54)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreditsCard extends StatelessWidget {
+  final String role;
+  final String name;
+  const _CreditsCard({required this.role, required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(role.toUpperCase(),
+            style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white38, letterSpacing: 1)),
+          const SizedBox(height: 4),
+          Text(name,
+            style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SOCIALS SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+class SocialsScreen extends StatelessWidget {
+  const SocialsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            children: [
+              _FoldsTopBar(title: 'SOCIALS', onBack: () => Navigator.pop(context)),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 20, bottom: 32),
+                  child: Column(
+                    children: [
+                      _SocialCard(
+                        icon: Icons.forum_rounded,
+                        iconColor: const Color(0xFF5865F2),
+                        title: 'Discord',
+                        subtitle: 'Stay in touch with the community, preview exclusive sneak peeks and suggest ideas.',
+                        onTap: () {},
+                      ),
+                      const SizedBox(height: 14),
+                      _SocialCard(
+                        icon: Icons.smart_display_rounded,
+                        iconColor: const Color(0xFFFF3B30),
+                        title: 'YouTube',
+                        subtitle: 'View updates, new additions and fantastic content all online.',
+                        onTap: () => _launchUrl('https://www.youtube.com/@JayDevGames1'),
+                      ),
+                      const SizedBox(height: 14),
+                      _SocialCard(
+                        icon: Icons.music_note_rounded,
+                        iconColor: const Color(0xFF25F4EE),
+                        title: 'TikTok',
+                        subtitle: 'Get regular updates, limited but exclusive behind-the-scenes videos & more.',
+                        onTap: () => _launchUrl('https://www.tiktok.com/@jaydevgames'),
+                      ),
+                      const SizedBox(height: 14),
+                      _SocialCard(
+                        icon: Icons.camera_alt_rounded,
+                        iconColor: const Color(0xFFE1306C),
+                        title: 'Instagram',
+                        subtitle: 'Get regular updates, limited but exclusive behind-the-scenes videos & more.',
+                        onTap: () => _launchUrl('https://www.instagram.com/jaydev_games'),
+                      ),
+                      const SizedBox(height: 14),
+                      _SocialCard(
+                        icon: Icons.public_rounded,
+                        iconColor: const Color(0xFFFFD465),
+                        title: 'Website',
+                        subtitle: 'View guides, updates, register, articles, content and so much more on the Folds website.',
+                        onTap: () => _launchUrl('https://folds.jaydev.games'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SocialCard extends StatefulWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _SocialCard({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  State<_SocialCard> createState() => _SocialCardState();
+}
+
+class _SocialCardState extends State<_SocialCard> {
+  double _scale = 1.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _scale = 0.97),
+      onTapUp: (_) => setState(() => _scale = 1.0),
+      onTapCancel: () => setState(() => _scale = 1.0),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _scale,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C2C2C),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 56, height: 56,
+                decoration: BoxDecoration(
+                  color: widget.iconColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(widget.icon, color: widget.iconColor, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.title,
+                      style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
+                    const SizedBox(height: 4),
+                    Text(widget.subtitle,
+                      style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white54, height: 1.3)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right_rounded, color: Colors.white24, size: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROFILE SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      width: 40, height: 40,
+                      decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
+                      child: Center(
+                        child: Transform.rotate(
+                          angle: 3.1416 / 4,
+                          child: Container(
+                            width: 14, height: 14,
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                left: BorderSide(color: Colors.black, width: 2.5),
+                                bottom: BorderSide(color: Colors.black, width: 2.5),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ProfileTabBar(
+                      selected: _tab,
+                      onChanged: (i) => setState(() => _tab = i),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _tab == 0
+                      ? const _ProfileTab(key: ValueKey('profile'))
+                      : Center(
+                          key: ValueKey('placeholder$_tab'),
+                          child: Text(
+                            _tab == 1 ? 'Stats coming soon!' : 'Achievements coming soon!',
+                            style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black38),
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileTabBar extends StatelessWidget {
+  final int selected;
+  final ValueChanged<int> onChanged;
+  const _ProfileTabBar({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['PROFILE', 'STATS', 'ACHIEVEMENTS'];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFEFEF),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: List.generate(labels.length, (i) {
+          final isSelected = i == selected;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => onChanged(i),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFFD6D6D6) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Center(
+                  child: Text(labels[i],
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      color: isSelected ? Colors.black : Colors.black38,
+                      letterSpacing: 0.5,
+                    )),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _ProfileTab extends StatelessWidget {
+  const _ProfileTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          const SizedBox(height: 16),
+          Stack(
+            children: [
+              Container(
+                width: 120, height: 120,
+                decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFEFEFEF)),
+                child: const Icon(Icons.person_rounded, color: Color(0xFFC4C4C4), size: 72),
+              ),
+              Positioned(
+                right: 0, top: 4,
+                child: Container(
+                  width: 32, height: 32,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2C2C2C),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.edit_rounded, color: Colors.white, size: 16),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text('Puzzle Apprentice',
+            style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black)),
+          const SizedBox(height: 4),
+          Text('JOINED 18 APRIL 2026',
+            style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 20),
+          Container(height: 1.5, color: const Color(0xFF2C2C2C)),
+          const SizedBox(height: 20),
+
+          _ProfileStatRow(
+            label: 'Daily Streak',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('🔥', style: TextStyle(fontSize: 22)),
+                const SizedBox(width: 8),
+                Text('207', style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black)),
+                const SizedBox(width: 6),
+                Text('days', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black)),
+              ],
+            ),
+          ),
+          _divider(),
+
+          _ProfileStatRow(
+            label: 'Rank',
+            trailing: Stack(
+              alignment: Alignment.center,
+              children: [
+                const Icon(Icons.shield_rounded, color: Color(0xFFC17A36), size: 38),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text('5', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+                ),
+              ],
+            ),
+          ),
+          _divider(),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Recently Played',
+                style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(8)),
+                child: Text('PILOT',
+                  style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _ProgressBar(progress: 0.51, color: const Color(0xFF7BD957), label: '51%'),
+          _divider(),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text('XP',
+                style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+              Row(
+                children: [
+                  Text('867 / 1000 XP',
+                    style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black54)),
+                  const SizedBox(width: 8),
+                  Text('to',
+                    style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black54)),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 28, height: 28,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(color: Color(0xFF2C2C2C), shape: BoxShape.circle),
+                    child: Text('6', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _ProgressBar(progress: 0.87, color: const Color(0xFFA8B0CC), label: '87%'),
+          const SizedBox(height: 28),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Share Game',
+                style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+              GestureDetector(
+                onTap: () {},
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
+                  child: Text('SHARE THE FUN',
+                    style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 16),
+    child: Container(height: 1, color: const Color(0xFFEFEFEF)),
+  );
+}
+
+class _ProfileStatRow extends StatelessWidget {
+  final String label;
+  final Widget trailing;
+  const _ProfileStatRow({required this.label, required this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(label, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
+        trailing,
+      ],
+    );
+  }
+}
+
+class _ProgressBar extends StatelessWidget {
+  final double progress;
+  final Color color;
+  final String label;
+  const _ProgressBar({required this.progress, required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = (progress * 100).toInt();
+    return Stack(
+      children: [
+        Container(
+          height: 26,
+          decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(13)),
+          child: Row(
+            children: [
+              Expanded(
+                flex: pct,
+                child: Container(decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(13))),
+              ),
+              Expanded(flex: 100 - pct, child: const SizedBox()),
+            ],
+          ),
+        ),
+        Positioned.fill(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 14),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(label,
+                style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black54)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
