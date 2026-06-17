@@ -3500,24 +3500,6 @@ class _ProfileTabState extends State<_ProfileTab> {
   );
 }
 
-class _ProfileStatRow extends StatelessWidget {
-  final String label;
-  final Widget trailing;
-  const _ProfileStatRow({required this.label, required this.trailing});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(label, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
-        trailing,
-      ],
-    );
-  }
-}
-
 class _ProgressBar extends StatelessWidget {
   final double progress;
   final Color color;
