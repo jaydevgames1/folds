@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -238,6 +239,10 @@ class AppStore {
   // ── Moderator
   static bool get isModerator => _p?.getBool('isModerator') ?? false;
   static set isModerator(bool v) => _p?.setBool('isModerator', v);
+
+  // ── Dev profile badge (set via dev panel, persists)
+  static bool get isDevProfile => _p?.getBool('isDevProfile') ?? false;
+  static set isDevProfile(bool v) => _p?.setBool('isDevProfile', v);
 
   // ── Streak
   static int get currentStreak => _p?.getInt('currentStreak') ?? 0;
@@ -532,12 +537,12 @@ class XPSystem {
 class FoldsTheme {
   static bool get isChristmasDay {
     final now = DateTime.now();
-    return now.month == 06 && now.day == 25;
+    return now.month == 12 && now.day == 25;
   }
 
   static bool get isHolidaySeason {
     final now = DateTime.now();
-    return now.month == 06 && now.day >= 1 && now.day <= 25;
+    return now.month == 12 && now.day >= 10 && now.day <= 30;
   }
 
   static bool isHolidayPuzzle(String id) =>
@@ -596,10 +601,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
   bool _notFound = false;
   bool _solved = false;
   bool _skipAnimation = false;
-  String? _toastTitle;
-  String? _toastDescription;
-  IconData? _toastIcon;
-  bool _toastVisible = false;
+  
   List<List<int>> _linkGroups = []; // each group: list of cell indices that flip together
   Map<int, String> _linkShapeByIndex = {}; // index -> shape name, for rendering the badge
 
@@ -615,7 +617,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
       }
       // Try to load the latest daily puzzle
       // Day 1 = November 1, 2026. Calculate today's puzzle number.
-      final launchDate = DateTime(2026, 06, 1);
+      final launchDate = DateTime(2026, 11, 1);
       final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
       final dayNumber = today.difference(launchDate).inDays + 1;
 
@@ -656,18 +658,31 @@ class _GameplayScreenState extends State<GameplayScreen> {
     super.dispose();
   }
 
+  void _showConfetti() {
+    if (!mounted) return;
+    OverlayEntry? entry;
+    entry = OverlayEntry(
+      builder: (_) => _ConfettiOverlay(onDone: () => entry?.remove()),
+    );
+    Overlay.of(context).insert(entry);
+  }
+
   void _showAchievementToast(String id) {
     final def = appAchievements.firstWhere(
       (a) => a.id == id,
       orElse: () => const AchievementDef('', '', '', Icons.star),
     );
-    if (def.id.isEmpty) return;
-    if (mounted) setState(() {
-      _toastTitle = def.title;
-      _toastDescription = def.description;
-      _toastIcon = def.icon;
-      _toastVisible = true;
-    });
+    if (def.id.isEmpty || !mounted) return;
+    OverlayEntry? entry;
+    entry = OverlayEntry(
+      builder: (ctx) => _AchievementToast(
+        title: def.title,
+        description: def.description,
+        icon: def.icon,
+        onDone: () => entry?.remove(),
+      ),
+    );
+    Overlay.of(context).insert(entry);
   }
 
   void _startTimer() {
@@ -888,6 +903,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
         AppStore.recentPack = 'RECTANGLE';
       }
 
+      if (_moves <= _par) _showConfetti();
       setState(() {
         _solved = true;
         _earnedXP = xp;
@@ -1202,6 +1218,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
                   cells: _cells,
                   skipAnimation: _skipAnimation,
                   isHoliday: FoldsTheme.isHolidayPuzzle(_id),
+                  gridRows: _gridRows,
+                  gridCols: _gridCols,
                   onRetry: () {
                     setState(() {
                       _solved = false;
@@ -1216,6 +1234,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                       _skipAnimation = false;
                       _moves = 0;
                       _earnedXP = 0;
+                      _loaded = false; // prevents old grid flashing for one frame
                     });
                     _resetTimer();
                     _loadPuzzle(_nextPuzzleId!);
@@ -1316,24 +1335,71 @@ class _GameplayScreenState extends State<GameplayScreen> {
                     Positioned.fill(
                       child: Container(
                         color: Colors.white,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('PAUSED', style: GoogleFonts.dmSans(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 4)),
-                            const SizedBox(height: 24),
-                            GestureDetector(
-                              onTap: () {
-                                setState(() => _paused = false);
-                                _stopwatch.start();
-                                _startTimer();
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                                decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
-                                child: Text('RESUME', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1)),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text('PAUSED', style: GoogleFonts.dmSans(
+                                fontSize: 32, fontWeight: FontWeight.w800,
+                                color: Colors.black, letterSpacing: 4)),
+                              const SizedBox(height: 8),
+                              Text(_puzzleDisplayTitle, style: GoogleFonts.dmSans(
+                                fontSize: 16, color: Colors.black38, fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 32),
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() => _paused = false);
+                                  _stopwatch.start();
+                                  _startTimer();
+                                },
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF2C2C2C),
+                                    borderRadius: BorderRadius.circular(14)),
+                                  child: Center(child: Text('RESUME', style: GoogleFonts.dmSans(
+                                    fontSize: 16, fontWeight: FontWeight.w800,
+                                    color: Colors.white, letterSpacing: 1))),
+                                ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 10),
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() => _paused = false);
+                                  _loadPuzzle(_id, forcePlay: true);
+                                  _resetTimer();
+                                },
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEFEFEF),
+                                    borderRadius: BorderRadius.circular(14)),
+                                  child: Center(child: Text('Restart Puzzle', style: GoogleFonts.dmSans(
+                                    fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black))),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              GestureDetector(
+                                onTap: () {
+                                  _timer.cancel();
+                                  _stopwatch.stop();
+                                  _pushFade(context, const PuzzlesMenuScreen());
+                                },
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEFEFEF),
+                                    borderRadius: BorderRadius.circular(14)),
+                                  child: Center(child: Text('Exit to Puzzles', style: GoogleFonts.dmSans(
+                                    fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black54))),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -1407,7 +1473,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                                   style: GoogleFonts.dmSans(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.black),
                                 ),
                               ),
-                              Text('by $_author', style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w400, color: Colors.black54)),
+                              Text('$_author', style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w400, color: Colors.black54)),
                             ],
                           ),
                           const Spacer(),
@@ -1787,8 +1853,10 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                   onPressed: () {
-                    if (passCtrl.text == _kDevPassword) setS(() => unlocked = true);
-                    else { passCtrl.clear(); msg('Wrong password'); }
+                    if (passCtrl.text == _kDevPassword) {
+                      AppStore.isDevProfile = true;
+                      setS(() => unlocked = true);
+                    } else { passCtrl.clear(); msg('Wrong password'); }
                   },
                   child: Text('Unlock', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
                 ),
@@ -2081,7 +2149,7 @@ Expanded(
     child: Column(
       children: [
         // Holiday pack at TOP when unlocked
-        if (!DateTime.now().isBefore(DateTime(2026, 06, 10))) ...[
+        if (!DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
           const _HolidayPackBanner(),
           const SizedBox(height: 14),
         ],
@@ -2110,13 +2178,13 @@ Expanded(
             onHome: () {
               Navigator.push(context, MaterialPageRoute(
                 builder: (context) => const PuzzleSelectorScreen(
-                  packName: 'Rectangle Pack', totalPuzzles: 100, idPrefix: 'r', idOffset: 0),
+                  packName: 'RECTANGLE', totalPuzzles: 100, idPrefix: 'r', idOffset: 0),
               ));
             },
           ),
         ),
         // Holiday pack at BOTTOM when not yet unlocked
-        if (DateTime.now().isBefore(DateTime(2026, 06, 10))) ...[
+        if (DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
           const SizedBox(height: 14),
           const _HolidayPackBanner(),
         ],
@@ -2398,7 +2466,18 @@ class PuzzleSelectorScreen extends StatelessWidget {
                                 TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Not Now', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45))),
                                 ElevatedButton(
                                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                                  onPressed: () { Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Processing purchase...'))); },
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      backgroundColor: Colors.transparent,
+                                      builder: (_) => const _PaymentSheet(
+                                        productName: 'Rectangle Pack',
+                                        price: '\$2.99',
+                                      ),
+                                    );
+                                  },
                                   child: Text('Buy for \$2.99', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
                                 ),
                               ],
@@ -2464,6 +2543,351 @@ class PuzzleSelectorScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFETTI
+// ─────────────────────────────────────────────────────────────────────────────
+class _ConfettiParticle {
+  double x, y, vx, vy, size, rotation, rotSpeed;
+  Color color;
+  _ConfettiParticle(this.x, this.y, this.vx, this.vy, this.size, this.rotation, this.rotSpeed, this.color);
+}
+
+class _ConfettiOverlay extends StatefulWidget {
+  const _ConfettiOverlay({required this.onDone});
+  final VoidCallback onDone;
+  @override
+  State<_ConfettiOverlay> createState() => _ConfettiOverlayState();
+}
+
+class _ConfettiOverlayState extends State<_ConfettiOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late List<_ConfettiParticle> _particles;
+  final _rng = math.Random();
+
+  static const _colors = [
+    Color(0xFFFFD465), Color(0xFF7BD957), Color(0xFF5865F2),
+    Color(0xFFFF6B35), Color(0xFF4CAF50), Color(0xFFE91E63),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _particles = List.generate(80, (_) => _ConfettiParticle(
+      _rng.nextDouble(),
+      -0.05 - _rng.nextDouble() * 0.15,
+      (_rng.nextDouble() - 0.5) * 0.006,
+      0.008 + _rng.nextDouble() * 0.012,
+      6 + _rng.nextDouble() * 8,
+      _rng.nextDouble() * math.pi * 2,
+      (_rng.nextDouble() - 0.5) * 0.15,
+      _colors[_rng.nextInt(_colors.length)],
+    ));
+    _ctrl = AnimationController(duration: const Duration(milliseconds: 2800), vsync: this)
+      ..addListener(() => setState(() {
+        for (final p in _particles) {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.0002;
+          p.rotation += p.rotSpeed;
+        }
+        _particles.removeWhere((p) => p.y > 1.15);
+        if (_particles.isEmpty) { _ctrl.stop(); widget.onDone(); }
+      }))
+      ..forward().whenComplete(widget.onDone);
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _ConfettiPainter(_particles, size),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfettiPainter extends CustomPainter {
+  final List<_ConfettiParticle> particles;
+  final Size screen;
+  _ConfettiPainter(this.particles, this.screen);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (final p in particles) {
+      canvas.save();
+      canvas.translate(p.x * size.width, p.y * size.height);
+      canvas.rotate(p.rotation);
+      paint.color = p.color;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.55),
+          const Radius.circular(2)),
+        paint);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ConfettiPainter old) => true;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOCK PAYMENT SHEET
+// ─────────────────────────────────────────────────────────────────────────────
+class _PaymentSheet extends StatefulWidget {
+  final String productName;
+  final String price;
+  const _PaymentSheet({required this.productName, required this.price});
+  @override
+  State<_PaymentSheet> createState() => _PaymentSheetState();
+}
+
+class _PaymentSheetState extends State<_PaymentSheet> {
+  final _cardCtrl = TextEditingController();
+  final _expiryCtrl = TextEditingController();
+  final _cvcCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  bool _busy = false;
+  bool _success = false;
+  String? _error;
+
+  String _formatCard(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    final buf = StringBuffer();
+    for (int i = 0; i < digits.length && i < 16; i++) {
+      if (i > 0 && i % 4 == 0) buf.write(' ');
+      buf.write(digits[i]);
+    }
+    return buf.toString();
+  }
+
+  String _formatExpiry(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.length <= 2) return digits;
+    return '${digits.substring(0, 2)}/${digits.substring(2, digits.length.clamp(0, 4))}';
+  }
+
+  bool get _valid =>
+      _cardCtrl.text.replaceAll(' ', '').length == 16 &&
+      _expiryCtrl.text.length == 5 &&
+      _cvcCtrl.text.length >= 3 &&
+      _nameCtrl.text.trim().isNotEmpty;
+
+  Future<void> _pay() async {
+    if (!_valid) { setState(() => _error = 'Please fill in all fields correctly.'); return; }
+    setState(() { _busy = true; _error = null; });
+    await Future.delayed(const Duration(milliseconds: 1800));
+    setState(() { _busy = false; _success = true; });
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  void dispose() {
+    _cardCtrl.dispose(); _expiryCtrl.dispose();
+    _cvcCtrl.dispose(); _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottom),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 350),
+        child: _success
+            ? _SuccessState(productName: widget.productName)
+            : Column(
+                key: const ValueKey('form'),
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE0E0E0),
+                        borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(widget.productName, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800)),
+                      Text('One-time purchase', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black45)),
+                    ])),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
+                      child: Text(widget.price, style: GoogleFonts.dmSans(
+                        fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ),
+                  ]),
+                  const SizedBox(height: 24),
+                  _PayField(label: 'CARDHOLDER NAME', controller: _nameCtrl,
+                    hint: 'Jay Dev', keyboard: TextInputType.name),
+                  const SizedBox(height: 12),
+                  _PayField(
+                    label: 'CARD NUMBER', controller: _cardCtrl,
+                    hint: '1234 5678 9012 3456',
+                    keyboard: TextInputType.number, maxLen: 19,
+                    onChanged: (v) {
+                      final formatted = _formatCard(v);
+                      if (formatted != v) {
+                        _cardCtrl.value = TextEditingValue(
+                          text: formatted,
+                          selection: TextSelection.collapsed(offset: formatted.length));
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(child: _PayField(
+                      label: 'EXPIRY', controller: _expiryCtrl,
+                      hint: 'MM/YY', keyboard: TextInputType.number, maxLen: 5,
+                      onChanged: (v) {
+                        final formatted = _formatExpiry(v);
+                        if (formatted != v) {
+                          _expiryCtrl.value = TextEditingValue(
+                            text: formatted,
+                            selection: TextSelection.collapsed(offset: formatted.length));
+                        }
+                      },
+                    )),
+                    const SizedBox(width: 12),
+                    Expanded(child: _PayField(
+                      label: 'CVC', controller: _cvcCtrl,
+                      hint: '•••', keyboard: TextInputType.number, maxLen: 4,
+                      obscure: true,
+                    )),
+                  ]),
+                  if (_error != null) Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(_error!, style: GoogleFonts.dmSans(fontSize: 13, color: Colors.red, fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(height: 20),
+                  GestureDetector(
+                    onTap: _busy ? null : _pay,
+                    child: Container(
+                      width: double.infinity,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(16)),
+                      child: Center(
+                        child: _busy
+                            ? const SizedBox(width: 22, height: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                            : Row(mainAxisSize: MainAxisSize.min, children: [
+                                const Icon(Icons.lock_rounded, color: Colors.white54, size: 16),
+                                const SizedBox(width: 8),
+                                Text('Pay ${widget.price}', style: GoogleFonts.dmSans(
+                                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                              ]),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Center(child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.security_rounded, size: 13, color: Colors.black26),
+                    const SizedBox(width: 4),
+                    Text('Secured with 256-bit encryption',
+                      style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black26)),
+                  ])),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _PayField extends StatelessWidget {
+  final String label;
+  final String hint;
+  final TextEditingController controller;
+  final TextInputType keyboard;
+  final int? maxLen;
+  final bool obscure;
+  final ValueChanged<String>? onChanged;
+
+  const _PayField({
+    required this.label,
+    required this.hint,
+    required this.controller,
+    required this.keyboard,
+    this.maxLen,
+    this.obscure = false,
+    this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w700,
+        color: Colors.black38, letterSpacing: 1.1)),
+      const SizedBox(height: 6),
+      TextField(
+        controller: controller,
+        keyboardType: keyboard,
+        obscureText: obscure,
+        maxLength: maxLen,
+        onChanged: onChanged,
+        style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w600),
+        decoration: InputDecoration(
+          counterText: '',
+          hintText: hint,
+          hintStyle: GoogleFonts.dmSans(color: Colors.black26),
+          filled: true,
+          fillColor: const Color(0xFFF5F5F5),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF2C2C2C), width: 1.5)),
+        ),
+      ),
+    ]);
+  }
+}
+
+class _SuccessState extends StatelessWidget {
+  final String productName;
+  const _SuccessState({required this.productName});
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 20),
+        const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 72),
+        const SizedBox(height: 16),
+        Text('Payment Successful!', style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        Text('$productName has been unlocked. Enjoy!', textAlign: TextAlign.center,
+          style: GoogleFonts.dmSans(fontSize: 15, color: Colors.black54)),
+        const SizedBox(height: 24),
+      ],
     );
   }
 }
@@ -2692,6 +3116,8 @@ class FoldCompleteAnimator extends StatefulWidget {
   final List<bool> cells;
   final bool skipAnimation;
   final bool isHoliday;
+  final int gridRows;
+  final int gridCols;
 
   const FoldCompleteAnimator({
     super.key,
@@ -2708,6 +3134,8 @@ class FoldCompleteAnimator extends StatefulWidget {
     required this.cells,
     this.skipAnimation = false,
     this.isHoliday = false,
+    this.gridRows = 4,
+    this.gridCols = 4,
   });
   @override
   State<FoldCompleteAnimator> createState() => _FoldCompleteAnimatorState();
@@ -2855,7 +3283,8 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
                         child: _GridHalf(
                           cells: widget.cells,
                           isLeft: false,
-                          cellCount: 4,
+                          gridRows: widget.gridRows,
+                          gridCols: widget.gridCols,
                           isHoliday: widget.isHoliday,
                         ),
                       ),
@@ -2870,7 +3299,8 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
                           child: _GridHalf(
                             cells: widget.cells,
                             isLeft: true,
-                            cellCount: 4,
+                            gridRows: widget.gridRows,
+                            gridCols: widget.gridCols,
                             isHoliday: widget.isHoliday,
                           ),
                         ),
@@ -2982,42 +3412,60 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
 class _GridHalf extends StatelessWidget {
   final List<bool> cells;
   final bool isLeft;
-  final int cellCount;
+  final int gridRows;
+  final int gridCols;
   final bool isHoliday;
 
-  const _GridHalf({required this.cells, required this.isLeft, required this.cellCount, this.isHoliday = false});
+  const _GridHalf({
+    required this.cells,
+    required this.isLeft,
+    required this.gridRows,
+    required this.gridCols,
+    this.isHoliday = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final cols = isLeft ? [0, 1] : [2, 3];
+    final halfCols = gridCols ~/ 2;
+    final startCol = isLeft ? 0 : halfCols;
+    const gap = 6.0;
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cellSize = (constraints.maxWidth - (8 * (cols.length - 1)) - 16) / cols.length;
+        final cellW = (constraints.maxWidth - gap * (halfCols - 1) - 16) / halfCols;
+        final cellH = constraints.maxHeight > 0
+            ? (constraints.maxHeight - gap * (gridRows - 1) - 16) / gridRows
+            : cellW;
+        final cellSize = min(cellW, cellH);
+
         return Container(
-          color: const Color(0xFFE8E8E8),
+          color: isHoliday ? const Color(0xFF0D1A0D) : const Color(0xFFE8E8E8),
           padding: const EdgeInsets.all(8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: List.generate(cellCount, (row) {
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(gridRows, (row) {
               return Padding(
-                padding: EdgeInsets.only(bottom: row < cellCount - 1 ? 8 : 0),
+                padding: EdgeInsets.only(bottom: row < gridRows - 1 ? gap : 0),
                 child: Row(
-                  children: cols.map((col) {
-                    final index = row * cellCount + col;
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(halfCols, (colIdx) {
+                    final col = startCol + colIdx;
+                    final index = row * gridCols + col;
+                    final isBlack = index < cells.length && cells[index];
                     return Padding(
-                      padding: EdgeInsets.only(right: col < cols.last ? 8 : 0),
+                      padding: EdgeInsets.only(right: colIdx < halfCols - 1 ? gap : 0),
                       child: Container(
-                        width: cellSize,
-                        height: cellSize,
+                        width: cellSize, height: cellSize,
                         decoration: BoxDecoration(
-                          color: cells[index]
-                            ? (isHoliday ? const Color(0xFF8B0000) : const Color(0xFF2C2C2C))
-                            : (isHoliday ? const Color(0xFF1B5E20) : Colors.white),
-                          borderRadius: BorderRadius.circular(10),
+                          color: isBlack
+                              ? (isHoliday ? const Color(0xFF8B0000) : const Color(0xFF2C2C2C))
+                              : (isHoliday ? const Color(0xFF1B5E20) : Colors.white),
+                          borderRadius: BorderRadius.circular(cellSize * 0.22),
                         ),
                       ),
                     );
-                  }).toList(),
+                  }),
                 ),
               );
             }),
@@ -3159,7 +3607,7 @@ class _StatsCard extends StatelessWidget {
                 _StatItem(emoji: '⏳', value: timeDisplay),
                 _StatItem(emoji: '💡', value: '0'),
                 _StatItem(emoji: '➡️', value: '$moves/$par'),
-                _StatItem(emoji: '⭐', value: '+$earnedXP XP'),
+                _XPCountUp(target: earnedXP),
               ],
             ),
           ),
@@ -3296,8 +3744,160 @@ class _StatItem extends StatelessWidget {
   }
 }
 
-//end of fold animation only 500 liens i guess it wasnt that bad
+class _XPCountUp extends StatefulWidget {
+  final int target;
+  const _XPCountUp({required this.target});
+  @override
+  State<_XPCountUp> createState() => _XPCountUpState();
+}
 
+class _XPCountUpState extends State<_XPCountUp>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<int> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      duration: Duration(milliseconds: (widget.target * 18).clamp(600, 1800)),
+      vsync: this,
+    );
+    _anim = IntTween(begin: 0, end: widget.target).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    // Delay to let the stats card finish sliding in
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) _ctrl.forward();
+    });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('⭐', style: TextStyle(fontSize: 20)),
+          const SizedBox(height: 4),
+          Text('+${_anim.value} XP',
+            style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
+        ],
+      ),
+    );
+  }
+}
+
+//end of fold animation only 500 liens i guess it wasnt that bad
+// ─────────────────────────────────────────────────────────────────────────────
+// ACHIEVEMENT TOAST
+// ─────────────────────────────────────────────────────────────────────────────
+class _AchievementToast extends StatefulWidget {
+  final String title;
+  final String description;
+  final IconData icon;
+  final VoidCallback onDone;
+
+  const _AchievementToast({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.onDone,
+  });
+
+  @override
+  State<_AchievementToast> createState() => _AchievementToastState();
+}
+
+class _AchievementToastState extends State<_AchievementToast>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _slide;
+  late Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        duration: const Duration(milliseconds: 420), vsync: this);
+    _slide = Tween<double>(begin: -60, end: 0).animate(
+        CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _fade = Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(parent: _ctrl, curve: const Interval(0, 0.4)));
+    _ctrl.forward();
+    Future.delayed(const Duration(seconds: 3), _dismiss);
+  }
+
+  void _dismiss() async {
+    if (!mounted) return;
+    await _ctrl.reverse();
+    widget.onDone();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final topPad = MediaQuery.of(context).padding.top;
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) => Positioned(
+        top: topPad + 12 + _slide.value,
+        left: 20, right: 20,
+        child: Opacity(
+          opacity: _fade.value,
+          child: Material(
+            color: Colors.transparent,
+            child: GestureDetector(
+              onTap: _dismiss,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C2C2C),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.22),
+                    blurRadius: 20, offset: const Offset(0, 8))],
+                ),
+                child: Row(children: [
+                  Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD465).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12)),
+                    child: Icon(widget.icon, color: const Color(0xFFFFD465), size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Achievement Unlocked!', style: GoogleFonts.dmSans(
+                        fontSize: 11, fontWeight: FontWeight.w700,
+                        color: const Color(0xFFFFD465), letterSpacing: 0.8)),
+                      const SizedBox(height: 2),
+                      Text(widget.title, style: GoogleFonts.dmSans(
+                        fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+                      Text(widget.description, style: GoogleFonts.dmSans(
+                        fontSize: 12, color: Colors.white54)),
+                    ],
+                  )),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 class _FlipCell extends StatefulWidget {
   final bool isBlack;
   final String? linkShape;
@@ -3843,6 +4443,8 @@ class DailyArchiveScreen extends StatefulWidget {
 class _DailyArchiveScreenState extends State<DailyArchiveScreen> {
   List<Map<String, dynamic>> _dailies = [];
   bool _loading = true;
+  int _filterDifficulty = 0; // 0 = all
+  int _filterStatus = 0; // 0=all, 1=completed, 2=incomplete
 
   @override
   void initState() {
@@ -3901,7 +4503,29 @@ class _DailyArchiveScreenState extends State<DailyArchiveScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  // Difficulty filter
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: [
+                      _FilterChip(label: 'All', active: _filterDifficulty == 0,
+                        onTap: () => setState(() => _filterDifficulty = 0)),
+                      const SizedBox(width: 6),
+                      ...List.generate(5, (i) => Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: _FilterChip(
+                          label: '${'★' * (i + 1)}',
+                          active: _filterDifficulty == i + 1,
+                          onTap: () => setState(() => _filterDifficulty = _filterDifficulty == i+1 ? 0 : i+1)),
+                      )),
+                      _FilterChip(label: '✓ Done', active: _filterStatus == 1,
+                        onTap: () => setState(() => _filterStatus = _filterStatus == 1 ? 0 : 1)),
+                      const SizedBox(width: 6),
+                      _FilterChip(label: '○ Todo', active: _filterStatus == 2,
+                        onTap: () => setState(() => _filterStatus = _filterStatus == 2 ? 0 : 2)),
+                    ]),
+                  ),
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
@@ -3925,9 +4549,28 @@ class _DailyArchiveScreenState extends State<DailyArchiveScreen> {
                       mainAxisSpacing: 12,
                       childAspectRatio: 1.4,
                     ),
-                    itemCount: _dailies.length,
+                    itemCount: (() {
+                      return _dailies.where((p) {
+                        final id = p['id'].toString();
+                        final diff = (p['difficulty'] as int?) ?? 1;
+                        final done = AppStore.isCompleted(id);
+                        if (_filterDifficulty > 0 && diff != _filterDifficulty) return false;
+                        if (_filterStatus == 1 && !done) return false;
+                        if (_filterStatus == 2 && done) return false;
+                        return true;
+                      }).length;
+                    })(),
                     itemBuilder: (context, i) {
-                      final puzzle = _dailies[i];
+                      final filtered = _dailies.where((p) {
+                        final id = p['id'].toString();
+                        final diff = (p['difficulty'] as int?) ?? 1;
+                        final done = AppStore.isCompleted(id);
+                        if (_filterDifficulty > 0 && diff != _filterDifficulty) return false;
+                        if (_filterStatus == 1 && !done) return false;
+                        if (_filterStatus == 2 && done) return false;
+                        return true;
+                      }).toList();
+                      final puzzle = filtered[i];
                       final id = puzzle['id'].toString();
                       final title = puzzle['title']?.toString() ?? '';
                       final num = id.replaceAll(RegExp(r'^[a-z]+'), '');
@@ -5052,6 +5695,27 @@ class _DevLabel extends StatelessWidget {
   );
 }
 
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _FilterChip({required this.label, required this.active, required this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFF2C2C2C) : const Color(0xFFEFEFEF),
+        borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: GoogleFonts.dmSans(
+        fontSize: 13, fontWeight: FontWeight.w700,
+        color: active ? Colors.white : Colors.black45)),
+    ),
+  );
+}
+
 class _DevChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
@@ -5618,23 +6282,38 @@ class _ProfileTabState extends State<_ProfileTab> {
             textAlign: TextAlign.center,
             style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black),
           ),
+          if (AppStore.isDevProfile || AppStore.isModerator)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (AppStore.isDevProfile)
+                    Container(
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF5865F2),
+                        borderRadius: BorderRadius.circular(8)),
+                      child: Text('DEV', style: GoogleFonts.dmSans(
+                        fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1)),
+                    ),
+                  if (AppStore.isModerator)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFD465),
+                        borderRadius: BorderRadius.circular(8)),
+                      child: Text('MOD', style: GoogleFonts.dmSans(
+                        fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 1)),
+                    ),
+                ],
+              ),
+            ),
           const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(AppStore.joinDate,
-                style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700,
-                    color: Colors.black38, letterSpacing: 1)),
-              if (AppStore.isModerator) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(6)),
-                  child: Text('MOD', style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.black)),
-                ),
-              ],
-            ],
-          ),
+          Text(AppStore.joinDate,
+            style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700,
+                color: Colors.black38, letterSpacing: 1)),
           ...[
             const SizedBox(height: 8),
             Row(
@@ -5889,6 +6568,23 @@ class _ProfileTabState extends State<_ProfileTab> {
     // until "GIVE-MEIN-FINI-TEXP" is typed into your redeem dialog.
     
 
+          GestureDetector(
+            onTap: () => _pushFade(context, const LeaderboardScreen()),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(16)),
+              child: Row(children: [
+                const Icon(Icons.leaderboard_rounded, color: Color(0xFFFFD465), size: 22),
+                const SizedBox(width: 12),
+                Text('Global Leaderboard', style: GoogleFonts.dmSans(
+                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                const Spacer(),
+                const Icon(Icons.chevron_right_rounded, color: Colors.white38),
+              ]),
+            ),
+          ),
+          _divider(),
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -5970,6 +6666,7 @@ class _ProgressBar extends StatelessWidget {
 }
 
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ACHIEVEMENTS DATA
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5999,15 +6696,94 @@ class _StatsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p4 = AppStore.completedInRange('p', 0, 50);
+    final p6 = AppStore.completedInRange('p', 50, 30);
+    final p8 = AppStore.completedInRange('p', 80, 20);
+    final rect = AppStore.completedInRange('r', 0, 100);
+    final holiday = AppStore.completedInRange('x', 0, 25);
+    final dailies = AppStore.dailiesCompleted;
+    final totalPar = AppStore.parPuzzles.length;
+
     return SingleChildScrollView(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 16),
-          _StatRowItem(label: 'Total Puzzles Solved', value: '${AppStore.puzzlesCompleted + AppStore.dailiesCompleted}'),
-          _StatRowItem(label: 'Pilot Puzzles Solved', value: '${AppStore.puzzlesCompleted}'),
-          _StatRowItem(label: 'Daily Folds Solved', value: '${AppStore.dailiesCompleted}'),
+          _StatSectionLabel('OVERVIEW'),
+          _StatRowItem(label: 'Total Solved', value: '${AppStore.puzzlesCompleted + dailies}'),
+          _StatRowItem(label: 'Solved at Par ★', value: '$totalPar'),
+          _StatRowItem(label: 'Daily Folds', value: '$dailies'),
+          _StatRowItem(label: 'Current Streak', value: '${AppStore.currentStreak} 🔥'),
           _StatRowItem(label: 'Total Cells Flipped', value: '${AppStore.totalFlips}'),
+          const SizedBox(height: 8),
+          _StatSectionLabel('PILOT PACK'),
+          _StatPackRow(label: '4×4', done: p4, total: 50),
+          _StatPackRow(label: '6×6', done: p6, total: 30),
+          _StatPackRow(label: '8×8', done: p8, total: 20),
+          const SizedBox(height: 8),
+          _StatSectionLabel('RECTANGLE PACK'),
+          _StatPackRow(label: 'Rectangle', done: rect, total: 100),
+          if (!DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
+            const SizedBox(height: 8),
+            _StatSectionLabel('HOLIDAY PACK'),
+            _StatPackRow(label: 'Holiday', done: holiday, total: 25),
+          ],
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatSectionLabel extends StatelessWidget {
+  final String text;
+  const _StatSectionLabel(this.text);
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8, top: 4),
+    child: Text(text, style: GoogleFonts.dmSans(
+      fontSize: 11, fontWeight: FontWeight.w700,
+      color: Colors.black38, letterSpacing: 1.2)),
+  );
+}
+
+class _StatPackRow extends StatelessWidget {
+  final String label;
+  final int done;
+  final int total;
+  const _StatPackRow({required this.label, required this.done, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = total > 0 ? done / total : 0.0;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFEFEF),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700)),
+              Text('$done / $total', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: pct,
+              backgroundColor: Colors.black12,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                pct >= 1.0 ? const Color(0xFF4CAF50) : const Color(0xFFFFD465)),
+              minHeight: 5,
+            ),
+          ),
         ],
       ),
     );
@@ -6588,6 +7364,160 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LEADERBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+class LeaderboardScreen extends StatefulWidget {
+  const LeaderboardScreen({super.key});
+  @override
+  State<LeaderboardScreen> createState() => _LeaderboardScreenState();
+}
+
+class _LeaderboardScreenState extends State<LeaderboardScreen> {
+  List<Map<String, dynamic>> _entries = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select('username, total_xp, avatar_path')
+          .order('total_xp', ascending: false)
+          .limit(50);
+      setState(() {
+        _entries = List<Map<String, dynamic>>.from(data);
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() { _error = 'Could not load rankings.'; _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final myId = AppStore.currentUser?.id;
+    final myXP = AppStore.totalXP;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            children: [
+              _FoldsTopBar(title: 'TOP FOLDERS', onBack: () => Navigator.pop(context)),
+              const SizedBox(height: 16),
+              // My rank card
+              if (AppStore.currentUser != null)
+                Builder(builder: (context) {
+                  final myPos = _entries.indexWhere(
+                    (e) => e['total_xp'] == myXP && e['username'] == AppStore.displayUsername);
+                  final rank = myPos >= 0 ? myPos + 1 : null;
+                  final shieldColor = XPSystem.shieldColor(XPSystem.rankFromXP(myXP));
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C2C2C),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(children: [
+                      Stack(alignment: Alignment.center, children: [
+                        Icon(Icons.shield_rounded, color: shieldColor, size: 36),
+                        Text('${XPSystem.rankFromXP(myXP)}',
+                          style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                      ]),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('You', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+                        Text('$myXP XP', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white54)),
+                      ])),
+                      if (rank != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: rank <= 3 ? const Color(0xFFFFD465) : Colors.white12,
+                            borderRadius: BorderRadius.circular(10)),
+                          child: Text('#$rank',
+                            style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800,
+                              color: rank <= 3 ? Colors.black : Colors.white)),
+                        ),
+                    ]),
+                  );
+                }),
+              // List
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C), strokeWidth: 3))
+                    : _error != null
+                        ? Center(child: Text(_error!, style: GoogleFonts.dmSans(fontSize: 15, color: Colors.black38)))
+                        : RefreshIndicator(
+                            onRefresh: _load,
+                            color: const Color(0xFF2C2C2C),
+                            child: ListView.builder(
+                              padding: EdgeInsets.zero,
+                              itemCount: _entries.length,
+                              itemBuilder: (context, i) {
+                                final e = _entries[i];
+                                final rank = i + 1;
+                                final xp = (e['total_xp'] as int?) ?? 0;
+                                final username = e['username']?.toString() ?? 'Folder';
+                                final xpRank = XPSystem.rankFromXP(xp);
+                                final shieldColor = XPSystem.shieldColor(xpRank);
+                                final isTop3 = rank <= 3;
+                                final medals = ['🥇', '🥈', '🥉'];
+
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: isTop3 ? const Color(0xFF2C2C2C) : const Color(0xFFEFEFEF),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: rank == 1 ? Border.all(color: const Color(0xFFFFD465), width: 1.5) : null,
+                                  ),
+                                  child: Row(children: [
+                                    SizedBox(
+                                      width: 36,
+                                      child: isTop3
+                                          ? Text(medals[i], style: const TextStyle(fontSize: 22))
+                                          : Text('#$rank', style: GoogleFonts.dmSans(
+                                              fontSize: 14, fontWeight: FontWeight.w700,
+                                              color: Colors.black38)),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Stack(alignment: Alignment.center, children: [
+                                      Icon(Icons.shield_rounded, color: shieldColor, size: 30),
+                                      Text('$xpRank',
+                                        style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
+                                    ]),
+                                    const SizedBox(width: 12),
+                                    Expanded(child: Text(username,
+                                      style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800,
+                                        color: isTop3 ? Colors.white : Colors.black))),
+                                    Text('$xp XP',
+                                      style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
+                                        color: isTop3 ? Colors.white54 : Colors.black38)),
+                                  ]),
+                                );
+                              },
+                            ),
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -6889,18 +7819,13 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final _controller = PageController();
   int _page = 0;
+  static const _totalPages = 7;
 
   void _next() {
-    if (_page < 3) {
+    if (_page < _totalPages - 1) {
       _controller.nextPage(duration: const Duration(milliseconds: 350), curve: Curves.easeOutCubic);
     } else {
-      AppStore.hasSeenOnboarding = true;
-      Navigator.pushReplacement(context, PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const GameplayScreen(),
-        transitionsBuilder: (_, animation, __, child) =>
-            FadeTransition(opacity: animation, child: child),
-        transitionDuration: const Duration(milliseconds: 400),
-      ));
+      _goToDaily();
     }
   }
 
@@ -6910,14 +7835,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void _goToDaily() {
+    AppStore.hasSeenOnboarding = true;
+    final launchDate = DateTime(2026, 11, 1);
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final dayNumber = today.difference(launchDate).inDays + 1;
+    final dailyId = dayNumber > 0 ? 'd$dayNumber' : 'p1';
+    Navigator.pushReplacement(context, PageRouteBuilder(
+      pageBuilder: (_, __, ___) => GameplayScreen(initialPuzzleId: dailyId),
+      transitionsBuilder: (_, animation, __, child) =>
+          FadeTransition(opacity: animation, child: child),
+      transitionDuration: const Duration(milliseconds: 400),
+    ));
   }
 
   @override
+  void dispose() { _controller.dispose(); super.dispose(); }
+
+  @override
   Widget build(BuildContext context) {
+    final isLast = _page == _totalPages - 1;
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -6928,23 +7865,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 controller: _controller,
                 onPageChanged: (i) => setState(() => _page = i),
                 children: const [
-                  _OnboardPage1(),
-                  _OnboardPage2(),
-                  _OnboardPage3(),
-                  _OnboardPage4(),
+                  _OnboardPage1(),         // 0: Welcome
+                  _OnboardPageSixSM(),     // 1: The 6SM menu
+                  _OnboardPage2(),         // 2: What is symmetry
+                  _OnboardTutorial1(),     // 3: 1-move puzzle
+                  _OnboardTutorial2(),     // 4: 2-move puzzle
+                  _OnboardTutorial3(),     // 5: 3-move puzzle
+                  _OnboardPageFinal(),     // 6: Par + XP + ready
                 ],
               ),
             ),
-            // Page dots
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(vertical: 14),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (i) => AnimatedContainer(
+                children: List.generate(_totalPages, (i) => AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: _page == i ? 20 : 8,
-                  height: 8,
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: _page == i ? 20 : 7,
+                  height: 7,
                   decoration: BoxDecoration(
                     color: _page == i ? const Color(0xFF2C2C2C) : const Color(0xFFD6D6D6),
                     borderRadius: BorderRadius.circular(4),
@@ -6952,9 +7891,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 )),
               ),
             ),
-            // Back + CTA
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
               child: Row(
                 children: [
                   if (_page > 0) ...[
@@ -6962,12 +7900,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       onTap: _back,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFEFEF),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text('Back', style: GoogleFonts.dmSans(
-                          fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black54)),
+                        decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(16)),
+                        child: Text('Back', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black54)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -6978,12 +7912,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 18),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF2C2C2C),
+                          color: isLast ? const Color(0xFF4CAF50) : const Color(0xFF2C2C2C),
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Center(
                           child: Text(
-                            _page < 3 ? 'Next' : 'Start Folding!',
+                            isLast ? '🧩 Play Today\'s Daily!' : 'Next',
                             style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white),
                           ),
                         ),
@@ -7000,6 +7934,378 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
+class _OnboardPageSixSM extends StatelessWidget {
+  const _OnboardPageSixSM();
+
+  @override
+  Widget build(BuildContext context) {
+    const items = [
+      (Icons.extension_rounded, 'Puzzles', 'Browse all packs & daily'),
+      (Icons.account_circle_rounded, 'Profile', 'XP, rank & achievements'),
+      (Icons.shopping_basket_rounded, 'Store', 'Unlock more packs'),
+      (Icons.settings_rounded, 'Settings', 'Timer, haptics & more'),
+      (Icons.favorite_rounded, 'Socials', 'YouTube, Discord, TikTok'),
+      (Icons.handshake_rounded, 'Credits', 'The team behind Folds'),
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(color: const Color(0xFFE8E8E8), shape: BoxShape.circle),
+            child: ClipOval(child: CustomPaint(painter: _HomeIconPainter())),
+          ),
+          const SizedBox(height: 16),
+          Text('The Home Button', style: GoogleFonts.dmSans(fontSize: 28, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text('Tap the circle in the top-left corner of any puzzle to open the navigation menu.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.5)),
+          const SizedBox(height: 24),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 10, mainAxisSpacing: 10,
+            childAspectRatio: 2.8,
+            children: items.map((item) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2C),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(item.$1, color: Colors.white54, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(item.$2, style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                      Text(item.$3, style: GoogleFonts.dmSans(fontSize: 9, color: Colors.white38)),
+                    ],
+                  )),
+                ],
+              ),
+            )).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Shared interactive tutorial widget
+class _TutorialGrid extends StatefulWidget {
+  final List<bool> initialCells;
+  final String hintText;
+  final String successText;
+  final VoidCallback? onSolved;
+
+  const _TutorialGrid({
+    required this.initialCells,
+    required this.hintText,
+    required this.successText,
+    this.onSolved,
+  });
+
+  @override
+  State<_TutorialGrid> createState() => _TutorialGridState();
+}
+
+class _TutorialGridState extends State<_TutorialGrid> {
+  late List<bool> _cells;
+  bool _solved = false;
+  int _moves = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _cells = List.from(widget.initialCells);
+  }
+
+  bool _isSolved() {
+    for (int row = 0; row < 4; row++) {
+      for (int col = 0; col < 2; col++) {
+        if (_cells[row * 4 + col] != _cells[row * 4 + (3 - col)]) return false;
+      }
+    }
+    return true;
+  }
+
+  // Count mismatched pairs for progress
+  double get _progress {
+    int matched = 0;
+    for (int row = 0; row < 4; row++) {
+      for (int col = 0; col < 2; col++) {
+        if (_cells[row * 4 + col] == _cells[row * 4 + (3 - col)]) matched++;
+      }
+    }
+    return matched / 8;
+  }
+
+  void _tap(int index) {
+    if (_solved) return;
+    setState(() {
+      _cells[index] = !_cells[index];
+      _moves++;
+      if (_isSolved()) {
+        _solved = true;
+        widget.onSolved?.call();
+      }
+    });
+  }
+
+  void _reset() => setState(() {
+    _cells = List.from(widget.initialCells);
+    _solved = false;
+    _moves = 0;
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = 8.0;
+    const cellSize = 56.0;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: _solved ? const Color(0xFFE8F5E9) : const Color(0xFFE8E8E8),
+            borderRadius: BorderRadius.circular(18),
+            border: _solved ? Border.all(color: const Color(0xFF4CAF50), width: 2) : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(4, (row) => Padding(
+              padding: EdgeInsets.only(bottom: row < 3 ? gap : 0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(4, (col) {
+                  final i = row * 4 + col;
+                  return Padding(
+                    padding: EdgeInsets.only(right: col < 3 ? gap : 0),
+                    child: GestureDetector(
+                      onTap: () => _tap(i),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: cellSize, height: cellSize,
+                        decoration: BoxDecoration(
+                          color: _cells[i] ? const Color(0xFF2C2C2C) : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 4, offset: const Offset(0, 2))],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            )),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Symmetry progress bar
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: _progress,
+            backgroundColor: const Color(0xFFE8E8E8),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              _solved ? const Color(0xFF4CAF50) : const Color(0xFFFFD465)),
+            minHeight: 5,
+          ),
+        ),
+        const SizedBox(height: 14),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: _solved
+              ? Column(key: const ValueKey('s'), children: [
+                  Text(widget.successText, textAlign: TextAlign.center,
+                    style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800,
+                      color: const Color(0xFF4CAF50))),
+                  const SizedBox(height: 4),
+                  Text('$_moves move${_moves == 1 ? '' : 's'} used',
+                    style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
+                  const SizedBox(height: 8),
+                  GestureDetector(onTap: _reset,
+                    child: Text('Try again', style: GoogleFonts.dmSans(
+                      fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black38,
+                      decoration: TextDecoration.underline))),
+                ])
+              : Column(key: const ValueKey('h'), children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Color(0xFFFFD465)),
+                    const SizedBox(width: 6),
+                    Flexible(child: Text(widget.hintText, textAlign: TextAlign.center,
+                      style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54))),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text('Moves: $_moves', style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black26)),
+                ]),
+        ),
+      ],
+    );
+  }
+}
+
+// Tutorial page wrapper
+class _TutorialPageShell extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget grid;
+
+  const _TutorialPageShell({
+    required this.title,
+    required this.subtitle,
+    required this.grid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        children: [
+          const SizedBox(height: 24),
+          Text(title, textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(subtitle, textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.5)),
+          const SizedBox(height: 24),
+          grid,
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _OnboardTutorial1 extends StatelessWidget {
+  const _OnboardTutorial1();
+
+  @override
+  Widget build(BuildContext context) {
+    return _TutorialPageShell(
+      title: 'Your First Fold',
+      subtitle: 'Every row must mirror itself left to right. One cell is out of place — find it.',
+      grid: _TutorialGrid(
+        // Row 0: W W W B — col 0 (W) ≠ col 3 (B). Tap index 0 to fix.
+        initialCells: const [
+          false, false, false, true,
+          false, false, false, false,
+          false, false, false, false,
+          false, false, false, false,
+        ],
+        hintText: 'Look at the top row — one corner doesn\'t match its pair. Tap the top-left cell.',
+        successText: '✓ Perfectly symmetrical!',
+      ),
+    );
+  }
+}
+
+class _OnboardTutorial2 extends StatelessWidget {
+  const _OnboardTutorial2();
+
+  @override
+  Widget build(BuildContext context) {
+    return _TutorialPageShell(
+      title: 'Two to Fix',
+      subtitle: 'Now two rows are unbalanced. Fix both to solve the puzzle.',
+      grid: _TutorialGrid(
+        // Row 0: B W W W (col 0 ≠ col 3). Row 3: W W W B (col 0 ≠ col 3).
+        // Fix: tap index 3 (row 0 col 3) and index 12 (row 3 col 0).
+        initialCells: const [
+          true,  false, false, false,
+          false, false, false, false,
+          false, false, false, false,
+          false, false, false, true,
+        ],
+        hintText: 'Top row and bottom row each have a mismatch. Tap the odd corner in each.',
+        successText: '✓ Both rows balanced!',
+      ),
+    );
+  }
+}
+
+class _OnboardTutorial3 extends StatelessWidget {
+  const _OnboardTutorial3();
+
+  @override
+  Widget build(BuildContext context) {
+    return _TutorialPageShell(
+      title: 'Think it Through',
+      subtitle: 'Three rows need balancing. Check each row left-to-right.',
+      grid: _TutorialGrid(
+        // Row 0: B W W W → tap index 3
+        // Row 1: W W B W → tap index 5 (col 1)
+        // Row 2: W W W B → tap index 8 (col 0)
+        // Row 3: W W W W → already ok
+        initialCells: const [
+          true,  false, false, false,
+          false, false, true,  false,
+          false, false, false, true,
+          false, false, false, false,
+        ],
+        hintText: 'Each of the first three rows has exactly one mismatched pair. Fix one row at a time.',
+        successText: '✓ You\'re ready to Fold!',
+      ),
+    );
+  }
+}
+
+class _OnboardPageFinal extends StatelessWidget {
+  const _OnboardPageFinal();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('🧩', style: TextStyle(fontSize: 48)),
+          const SizedBox(height: 16),
+          Text('You\'re Ready!', textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(fontSize: 30, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          Text('Every day a new daily puzzle drops. Hit par to earn maximum XP and a gold stamp.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(fontSize: 15, color: Colors.black54, height: 1.6)),
+          const SizedBox(height: 28),
+          _OnboardResultRow(stamp: '★', stampColor: const Color(0xFFFFD465),
+            label: 'At or under par', detail: 'Maximum XP — Gold stamp'),
+          const SizedBox(height: 8),
+          _OnboardResultRow(stamp: '✦', stampColor: Colors.black38,
+            label: 'Over par', detail: 'Partial XP earned'),
+          const SizedBox(height: 8),
+          _OnboardResultRow(stamp: '—', stampColor: Colors.black12,
+            label: 'Way over par', detail: 'No XP awarded'),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(12)),
+            child: Row(children: [
+              const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Color(0xFFFFD465)),
+              const SizedBox(width: 10),
+              Expanded(child: Text(
+                'Some tiles are linked — flipping one flips all tiles with the same shape badge.',
+                style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54, height: 1.4))),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+}
 class _OnboardPage1 extends StatelessWidget {
   const _OnboardPage1();
   @override
@@ -7012,7 +8318,7 @@ class _OnboardPage1 extends StatelessWidget {
           Container(
             width: 100, height: 100,
             decoration: BoxDecoration(
-              color: const Color(0xFF2C2C2C),
+              color: const Color(0xFFD3D3D3),
               borderRadius: BorderRadius.circular(28),
             ),
             child: ClipRRect(
