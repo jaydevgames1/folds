@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 // ── Set this to your own private password before building ─────────────────
 const String _kDevPassword = 'ilovefoldy';
@@ -29,6 +30,7 @@ void main() async {
     anonKey: 'sb_publishable_hznxJ0hZwXRvO-KHZuoYag_RXPDWfWI',
   );
   await AppStore.init();
+  await AudioService.init();
   runApp(const FoldsApp());
 }
 
@@ -72,6 +74,10 @@ class AppSettings {
   static bool enableMs = false;
   static int movesDisplay = 0;
   static bool haptic = true;
+  static bool musicEnabled = true;
+  static double musicVolume = 0.4;
+  static bool sfxEnabled = true;
+  static double sfxVolume = 0.55;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,6 +176,7 @@ class AppStore {
       if (data['last_daily_date'] != null) {
         await _p?.setString('lastDailyDate', data['last_daily_date']);
       }
+      await _p?.setBool('isModerator', data['is_moderator'] ?? false);
     } catch (e) {
       debugPrint("Error bringing down cloud profile values: $e");
     }
@@ -203,6 +210,16 @@ class AppStore {
 
   // Prefers the signed-in account's username (set at sign up) over the
   // local guest username, so Profile always shows who's actually logged in.
+  static Future<bool> isUsernameAvailable(String username) async {
+    try {
+      final result = await Supabase.instance.client
+          .rpc('check_username_available', params: {'check_username': username});
+      return result == true;
+    } catch (_) {
+      return true; // fail open — trigger constraint catches duplicates
+    }
+  }
+
   static String get displayUsername {
     final metaName = currentUser?.userMetadata?['username'];
     if (metaName is String && metaName.trim().isNotEmpty) return metaName;
@@ -363,6 +380,17 @@ class AppStore {
   // ── Progress stats
   static int get puzzlesCompleted =>
       completedPuzzles.where((id) => !id.startsWith('d')).length;
+
+  static int get todayCompletedCount {
+    final today = DateTime.now();
+    final key = 'dailyCount_${today.year}_${today.month}_${today.day}';
+    return _p?.getInt(key) ?? 0;
+  }
+  static void incrementTodayCount() {
+    final today = DateTime.now();
+    final key = 'dailyCount_${today.year}_${today.month}_${today.day}';
+    _p?.setInt(key, todayCompletedCount + 1);
+  }
   static int get dailiesCompleted =>
       completedPuzzles.where((id) => id.startsWith('d')).length;
 
@@ -568,6 +596,61 @@ class FoldsTheme {
 
   static bool hasWinterBg(String id) => isHolidayPuzzle(id);
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIO SERVICE
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+class AudioService {
+  static final AudioPlayer _music = AudioPlayer();
+  static final AudioPlayer _sfx = AudioPlayer();
+  static bool _initialized = false;
+
+  static Future<void> init() async {
+    if (_initialized) return;
+    _initialized = true;
+    await _music.setReleaseMode(ReleaseMode.loop);
+    await _music.setVolume(AppSettings.musicVolume);
+    await _sfx.setVolume(AppSettings.sfxVolume);
+  }
+
+  // static Future<void> startMusic() async {
+  //   if (!AppSettings.musicEnabled) return;
+  //   await _music.play(AssetSource('sounds/bgm.mp3'));
+  // }
+
+  static Future<void> stopMusic() async => await _music.stop();
+  static Future<void> pauseMusic() async => await _music.pause();
+  static Future<void> resumeMusic() async {
+    if (AppSettings.musicEnabled) await _music.resume();
+  }
+
+  static Future<void> flip() async {
+    if (!AppSettings.sfxEnabled) return;
+    // Create a new short-lived player each time so overlapping flips all fire
+    final p = AudioPlayer();
+    await p.setVolume(AppSettings.sfxVolume);
+    await p.play(AssetSource('sounds/flip.mp3'));
+    p.onPlayerComplete.listen((_) => p.dispose());
+  }
+
+  static Future<void> solve() async {
+    if (!AppSettings.sfxEnabled) return;
+    await _sfx.play(AssetSource('sounds/solve.mp3'));
+  }
+
+  static void setMusicVolume(double v) {
+    AppSettings.musicVolume = v;
+    _music.setVolume(v);
+  }
+
+  static void setSfxVolume(double v) {
+    AppSettings.sfxVolume = v;
+    _sfx.setVolume(v);
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // GAMEPLAY SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
@@ -609,6 +692,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
   void initState() {
     super.initState();
     _stopwatch = Stopwatch()..start();
+    _startTimer();
+    // AudioService.startMusic();
     _startTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.initialPuzzleId != null) {
@@ -656,6 +741,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
   void dispose() {
     _timer.cancel();
     super.dispose();
+    AudioService.stopMusic();
   }
 
   void _showConfetti() {
@@ -667,19 +753,33 @@ class _GameplayScreenState extends State<GameplayScreen> {
     Overlay.of(context).insert(entry);
   }
 
+  final _toastQueue = <String>[];
+  bool _toastShowing = false;
+
   void _showAchievementToast(String id) {
+    _toastQueue.add(id);
+    if (!_toastShowing) _processNextToast();
+  }
+
+  void _processNextToast() {
+    if (_toastQueue.isEmpty || !mounted) { _toastShowing = false; return; }
+    _toastShowing = true;
+    final id = _toastQueue.removeAt(0);
     final def = appAchievements.firstWhere(
       (a) => a.id == id,
-      orElse: () => const AchievementDef('', '', '', Icons.star),
-    );
-    if (def.id.isEmpty || !mounted) return;
+      orElse: () => const AchievementDef('', '', '', Icons.star));
+    if (def.id.isEmpty) { _toastShowing = false; _processNextToast(); return; }
     OverlayEntry? entry;
     entry = OverlayEntry(
       builder: (ctx) => _AchievementToast(
         title: def.title,
         description: def.description,
         icon: def.icon,
-        onDone: () => entry?.remove(),
+        onDone: () {
+          entry?.remove();
+          _toastShowing = false;
+          Future.delayed(const Duration(milliseconds: 280), _processNextToast);
+        },
       ),
     );
     Overlay.of(context).insert(entry);
@@ -857,6 +957,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
       _moves++;
       AppStore.totalFlips = AppStore.totalFlips + 1;
     });
+    AudioService.flip();
 
     if (AppSettings.haptic) {
       if (_moves == 1) HapticFeedback.lightImpact();
@@ -874,6 +975,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
         hasFailed: hasFailed,
       );
       if (AppSettings.haptic) HapticFeedback.heavyImpact();
+      AudioService.solve();
 
       void tryUnlock(String id) {
         if (!AppStore.isUnlocked(id)) {
@@ -886,6 +988,10 @@ class _GameplayScreenState extends State<GameplayScreen> {
       if (_moves == _par) tryUnlock('flawless');
       if (_stopwatch.elapsedMilliseconds < 15000) tryUnlock('speed_demon');
       if (AppStore.totalFlips >= 100) tryUnlock('flippin_crazy');
+                                if (AppStore.totalFlips >= 250) tryUnlock('flipaholic');
+                                if (AppStore.totalFlips >= 500) tryUnlock('addicted_to_flipping');
+                                AppStore.incrementTodayCount();
+                                if (AppStore.todayCompletedCount >= 10) tryUnlock('folding_frenzy');
 
       final alreadyCompleted = AppStore.isCompleted(_id);
       if (!alreadyCompleted) {
@@ -1557,12 +1663,39 @@ class _GameplayScreenState extends State<GameplayScreen> {
                         child: Padding(
                           padding: const EdgeInsets.all(20),
                           child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Row(
-                                children: [
-                                  _SixSMCard(
-                                    label: 'Puzzles',
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                _closeMenu();
+                                Future.delayed(const Duration(milliseconds: 260), () {
+                                  _pushFade(context, const LeaderboardScreen());
+                                });
+                              },
+                              child: Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2C2C2C),
+                                  borderRadius: BorderRadius.circular(20)),
+                                child: Row(children: [
+                                  const Icon(Icons.leaderboard_rounded,
+                                    color: Color(0xFFFFD465), size: 20),
+                                  const SizedBox(width: 12),
+                                  Text('LEADERBOARD', style: GoogleFonts.dmSans(
+                                    fontSize: 16, fontWeight: FontWeight.w800,
+                                    color: Colors.white, letterSpacing: 0.5)),
+                                  const Spacer(),
+                                  const Icon(Icons.chevron_right_rounded,
+                                    color: Colors.white38, size: 20),
+                                ]),
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                _SixSMCard(
+                                  label: 'Puzzles',
                                     icon: Icons.extension_rounded,
                                     onTap: () {
                                       _closeMenu();
@@ -1667,6 +1800,30 @@ class PuzzlesMenuScreen extends StatefulWidget {
 
 class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
   bool _downloadBusy = false;
+  String _countdown = '';
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(_tick);
+    });
+  }
+
+  void _tick() {
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day + 1);
+    final d = midnight.difference(now);
+    _countdown = '${d.inHours.toString().padLeft(2,'0')}:${(d.inMinutes % 60).toString().padLeft(2,'0')}:${(d.inSeconds % 60).toString().padLeft(2,'0')}';
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> _handleDownloadTap() async {
     final has = AppStore.hasOfflinePuzzles;
@@ -1789,12 +1946,12 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
     final result = await AppStore.downloadAllPuzzles();
     setState(() => _downloadBusy = false);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(
-        result != null
-          ? '✅ ${result['count']} puzzles cached (${result['sizeKB']} KB) — play offline anytime!'
-          : '❌ Download failed. Check your connection.',
-        style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+   if (result != null) AppStore.unlockAchievement('just_in_case');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result != null
+            ? '✅ ${result['count']} puzzles cached (${result['sizeKB']} KB) — play offline anytime!'
+            : '❌ Download failed. Check your connection.',
+            style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
       backgroundColor: const Color(0xFF2C2C2C),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1805,12 +1962,14 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
     final passCtrl = TextEditingController();
     final xpCtrl = TextEditingController();
     final idCtrl = TextEditingController();
+    final modCtrl = TextEditingController();
     bool unlocked = false;
     String status = '';
 
     showDialog(
       context: outerContext,
       barrierDismissible: false,
+      barrierColor: Colors.black54,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) {
           void msg(String m) => setS(() => status = m);
@@ -1864,23 +2023,47 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
             );
           }
 
-          return AlertDialog(
+          final screenSize = MediaQuery.of(ctx).size;
+          return Dialog(
             backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: Row(children: [
-              const Icon(Icons.build_rounded, size: 18, color: Color(0xFFFFD465)),
-              const SizedBox(width: 8),
-              Text('Dev Panel', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 20)),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(6)),
-                child: Text('UNLOCKED', style: GoogleFonts.dmSans(fontSize: 9, fontWeight: FontWeight.w800)),
-              ),
-            ]),
-            content: SizedBox(
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: screenSize.width * 0.03,
+              vertical: screenSize.height * 0.03,
+            ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            child: SizedBox(
               width: double.maxFinite,
-              child: SingleChildScrollView(
+              height: screenSize.height * 0.92,
+              child: Column(children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF2C2C2C),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.build_rounded, size: 18, color: Color(0xFFFFD465)),
+                    const SizedBox(width: 10),
+                    Text('Developer Panel', style: GoogleFonts.dmSans(
+                      fontWeight: FontWeight.w800, fontSize: 18, color: Colors.white)),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(6)),
+                      child: Text('UNLOCKED', style: GoogleFonts.dmSans(
+                        fontSize: 9, fontWeight: FontWeight.w800, color: Colors.black)),
+                    ),
+                    const SizedBox(width: 10),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(ctx),
+                      child: const Icon(Icons.close_rounded, color: Colors.white54, size: 22)),
+                  ]),
+                ),
+                // Body
+                Expanded(child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2034,6 +2217,47 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
                       }),
                     ]),
 
+                    _DevLabel('MODERATOR MANAGEMENT'),
+                    TextField(
+                      controller: modCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Username to approve/revoke', isDense: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        filled: true, fillColor: const Color(0xFFF5F5F5),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      _DevChip(label: '✓ Approve Mod', onTap: () async {
+                        final u = modCtrl.text.trim();
+                        if (u.isEmpty) { msg('Enter a username'); return; }
+                        try {
+                          await Supabase.instance.client.rpc('approve_moderator', params: {'target_username': u});
+                          msg('✅ $u approved as moderator');
+                        } catch (e) { msg('❌ $e'); }
+                      }),
+                      _DevChip(label: '✕ Revoke Mod', onTap: () async {
+                        final u = modCtrl.text.trim();
+                        if (u.isEmpty) { msg('Enter a username'); return; }
+                        try {
+                          await Supabase.instance.client.rpc('revoke_moderator', params: {'target_username': u});
+                          msg('✅ $u mod revoked');
+                        } catch (e) { msg('❌ $e'); }
+                      }),
+                    ]),
+
+                    _DevLabel('SHADOW ACHIEVEMENTS'),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      _DevChip(label: '🐛 Grant Exterminator', onTap: () {
+                        AppStore.unlockAchievement('exterminator');
+                        msg('✅ Exterminator granted');
+                      }),
+                      _DevChip(label: '🏛 Grant Architect', onTap: () {
+                        AppStore.unlockAchievement('build');
+                        msg('✅ Architect granted');
+                      }),
+                    ]),
+
                     _DevLabel('NUCLEAR'),
                     _DevBtn(label: '⚠️ Reset ALL Progress', textColor: Colors.red, onTap: () async {
                       final go = await showDialog<bool>(context: outerContext, builder: (c) => AlertDialog(
@@ -2055,11 +2279,8 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
                 ),
               ),
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx),
-                child: Text('Close', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45))),
-            ],
-          );
+            
+          ])));
         },
       ),
     );
@@ -4039,6 +4260,11 @@ class _PentaBadgePainter extends CustomPainter {
   @override bool shouldRepaint(_) => false;
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STREAK CALENDAR
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FIRE ICON PAINTER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4067,7 +4293,7 @@ class _FirePainter extends CustomPainter {
       outerPath,
       Paint()
         ..style = PaintingStyle.fill
-        ..color = isDoneToday ? const Color(0xFFFF6B35) : Colors.grey.shade300,
+        ..color = isDoneToday ? const Color(0xFFE53935) : Colors.grey.shade300,
     );
 
     if (isDoneToday) {
@@ -5084,6 +5310,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _optOutData = false;
   bool _justDont = false;
   
+  void _showBugReport(BuildContext ctx) {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: ctx,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: Text('Report a Bug', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 20)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Describe what happened and how to reproduce it.',
+            style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: 'e.g. When I tap the 6x6 grid puzzle and...',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              filled: true, fillColor: const Color(0xFFF5F5F5)),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogCtx),
+            child: Text('Cancel', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () async {
+              if (ctrl.text.trim().isEmpty) return;
+              Navigator.pop(dialogCtx);
+              // Log to Supabase
+              try {
+                await Supabase.instance.client.from('bug_reports').insert({
+                  'username': AppStore.displayUsername,
+                  'user_id': AppStore.currentUser?.id,
+                  'description': ctrl.text.trim(),
+                  'created_at': DateTime.now().toIso8601String(),
+                });
+              } catch (_) {}
+              // Grant achievement
+              if (!AppStore.isUnlocked('exterminator')) {
+                AppStore.unlockAchievement('exterminator');
+              }
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                  content: Text('Bug report sent! Thanks for helping 🐛',
+                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                  backgroundColor: const Color(0xFF2C2C2C),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ));
+              }
+            },
+            child: Text('Send Report', style: GoogleFonts.dmSans(
+              fontWeight: FontWeight.w800, color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _t(String text) {
     if (!_justDont) return text;
     return text.replaceAll('a', 'u').replaceAll('e', 'ee').replaceAll('o', 'aw').replaceAll('s', 'z')
@@ -5170,7 +5457,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _SliderRow(
                         title: 'SFX',
                         value: _sfx,
-                        onChanged: (v) => setState(() => _sfx = v),
+                        onChanged: (v) => setState(() {
+                          _sfx = v;
+                          AudioService.setSfxVolume(v);
+                        }),
                       ),
                       const SizedBox(height: 12),
                       Text('Current Track',
@@ -5178,9 +5468,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 10),
                       _TrackPlayerCard(
                         isPlaying: _isPlaying,
-                        onPlayToggle: () => setState(() => _isPlaying = !_isPlaying),
+                        onPlayToggle: () => setState(() {
+                          _isPlaying = !_isPlaying;
+                          if (_isPlaying) AudioService.resumeMusic(); else AudioService.pauseMusic();
+                        }),
                         volume: _trackVolume,
-                        onVolumeChanged: (v) => setState(() => _trackVolume = v),
+                        onVolumeChanged: (v) => setState(() {
+                          _trackVolume = v;
+                          AudioService.setMusicVolume(v);
+                        }),
                       ),
 
                       _SectionHeader('ACCOUNT & DATA'),
@@ -5299,6 +5595,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         subtitle: 'Exclusive content for trusted members',
                         onTap: () => _pushFade(context, const ModeratorPanelScreen()),
                       ),
+                      _ActionPill(label: 'Report a Bug 🐛', onTap: () => _showBugReport(context)),
+                      const SizedBox(height: 10),
                       _ActionPill(
                         label: 'View Tutorial Again',
                         onTap: () {
@@ -6132,6 +6430,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onChanged: (i) => setState(() => _tab = i),
                     ),
                   ),
+                  
                 ],
               ),
               const SizedBox(height: 16),
@@ -6277,39 +6576,38 @@ class _ProfileTabState extends State<_ProfileTab> {
             ],
           ),
           const SizedBox(height: 14),
-          Text(
-            AppStore.displayUsername,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black),
-          ),
-          if (AppStore.isDevProfile || AppStore.isModerator)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (AppStore.isDevProfile)
-                    Container(
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF5865F2),
-                        borderRadius: BorderRadius.circular(8)),
-                      child: Text('DEV', style: GoogleFonts.dmSans(
-                        fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1)),
-                    ),
-                  if (AppStore.isModerator)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD465),
-                        borderRadius: BorderRadius.circular(8)),
-                      child: Text('MOD', style: GoogleFonts.dmSans(
-                        fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 1)),
-                    ),
-                ],
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  AppStore.displayUsername,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black),
+                ),
               ),
-            ),
+              if (AppStore.isDevProfile) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5865F2), borderRadius: BorderRadius.circular(8)),
+                  child: Text('DEV', style: GoogleFonts.dmSans(
+                    fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1)),
+                ),
+              ] else if (AppStore.isModerator) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(8)),
+                  child: Text('MOD', style: GoogleFonts.dmSans(
+                    fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 1)),
+                ),
+              ],
+            ],
+          ),
           const SizedBox(height: 4),
           Text(AppStore.joinDate,
             style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700,
@@ -6337,7 +6635,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: AppStore.isStreakDoneToday
-                        ? const Color(0xFFFF6B35)
+                        ? const Color(0xFFE53935)
                         : Colors.black26,
                   ),
                 ),
@@ -6493,6 +6791,9 @@ class _ProfileTabState extends State<_ProfileTab> {
           ],
 
           _divider(),
+          
+
+          // Recently played pack
 
           // Recently played pack
           if (recentPack.isNotEmpty) ...[
@@ -6569,18 +6870,18 @@ class _ProfileTabState extends State<_ProfileTab> {
     
 
           GestureDetector(
-            onTap: () => _pushFade(context, const LeaderboardScreen()),
+            onTap: () => showPublicProfile(context,
+              username: AppStore.displayUsername,
+              xp: AppStore.totalXP,
+              leaderboardRank: 0,
+            ),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(16)),
-              child: Row(children: [
-                const Icon(Icons.leaderboard_rounded, color: Color(0xFFFFD465), size: 22),
-                const SizedBox(width: 12),
-                Text('Global Leaderboard', style: GoogleFonts.dmSans(
-                  fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
-                const Spacer(),
-                const Icon(Icons.chevron_right_rounded, color: Colors.white38),
-              ]),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
+              child: Center(child: Text('View Public Profile',
+                style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black54))),
             ),
           ),
           _divider(),
@@ -6679,11 +6980,28 @@ class AchievementDef {
 }
 
 const appAchievements = [
+  // ── GETTING STARTED
   AchievementDef('first_fold', 'First Fold', 'Complete your very first puzzle.', Icons.check_circle_outline_rounded),
-  AchievementDef('grid_master', 'Grid Master', 'Complete a 6x6 puzzle.', Icons.grid_on_rounded),
+
+  // ── IN A DAY
+  AchievementDef('folding_frenzy', 'Folding Frenzy', 'Complete 10 puzzles in a single day.', Icons.flash_on_rounded),
+
+  // ── GRID SIZE
+  AchievementDef('grid_master', 'Grid Master', 'Complete a 6×6 puzzle.', Icons.grid_on_rounded),
+
+  // ── FLIPS
   AchievementDef('flippin_crazy', "Flippin' Crazy", 'Flip a total of 100 cells.', Icons.touch_app_rounded),
+  AchievementDef('flipaholic', 'Flipaholic', 'Flip a total of 250 cells.', Icons.touch_app_rounded),
+  AchievementDef('addicted_to_flipping', 'Addicted to Flipping', 'Flip a total of 500 cells.', Icons.touch_app_rounded),
+
+  // ── SKILL
   AchievementDef('flawless', 'Flawless Logic', 'Solve a puzzle in the exact par amount of moves.', Icons.lightbulb_outline_rounded),
   AchievementDef('speed_demon', 'Speed Demon', 'Solve a puzzle in under 15 seconds.', Icons.timer_rounded),
+
+  // ── SHADOW
+  AchievementDef('exterminator', 'Exterminator', 'Report a bug to the Folds team.', Icons.bug_report_rounded),
+  AchievementDef('build', 'Architect', 'Get a puzzle featured in the game.', Icons.architecture_rounded),
+  AchievementDef('just_in_case', 'Just In Case', 'Download all puzzles for offline play.', Icons.cloud_download_rounded),
 ];
 
 
@@ -6818,63 +7136,116 @@ class _StatRowItem extends StatelessWidget {
 class _AchievementsTab extends StatelessWidget {
   const _AchievementsTab({super.key});
 
+  static const _categories = [
+    ('GETTING STARTED', ['first_fold', 'folding_frenzy']),
+    ('GRID SIZE', ['grid_master']),
+    ('FLIPS', ['flippin_crazy', 'flipaholic', 'addicted_to_flipping']),
+    ('SKILL', ['flawless', 'speed_demon']),
+    ('SHADOW', ['exterminator', 'build', 'just_in_case']),
+  ];
+
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
+    final unlocked = appAchievements.where((a) => AppStore.isUnlocked(a.id)).length;
+    return ListView(
       padding: const EdgeInsets.only(top: 16, bottom: 24),
-      itemCount: appAchievements.length,
-      itemBuilder: (context, i) {
-        final def = appAchievements[i];
-        final isUnlocked = AppStore.isUnlocked(def.id);
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
+      children: [
+        // Progress header
+        Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: isUnlocked ? const Color(0xFF2C2C2C) : const Color(0xFFEFEFEF),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 48, height: 48,
-                decoration: BoxDecoration(
-                  color: isUnlocked ? const Color(0xFFFFD465).withValues(alpha: 0.15) : Colors.black12,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  def.icon, 
-                  color: isUnlocked ? const Color(0xFFFFD465) : Colors.black38, 
-                  size: 26
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(def.title,
-                      style: GoogleFonts.dmSans(
-                        fontSize: 18, 
-                        fontWeight: FontWeight.w800, 
-                        color: isUnlocked ? Colors.white : Colors.black45
-                      )),
-                    const SizedBox(height: 4),
-                    Text(def.description,
-                      style: GoogleFonts.dmSans(
-                        fontSize: 13, 
-                        fontWeight: FontWeight.w500, 
-                        color: isUnlocked ? Colors.white54 : Colors.black38
-                      )),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+            color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
+          child: Row(children: [
+            Text('$unlocked / ${appAchievements.length} Unlocked',
+              style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+            const Spacer(),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SizedBox(width: 80, child: LinearProgressIndicator(
+                value: appAchievements.isEmpty ? 0 : unlocked / appAchievements.length,
+                backgroundColor: Colors.white24,
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD465)),
+                minHeight: 6,
+              )),
+            ),
+          ]),
+        ),
+        for (final cat in _categories) ...[
+          _AchievementSection(label: cat.$1, ids: cat.$2),
+        ],
+      ],
     );
-  } 
+  }
+}
+
+class _AchievementSection extends StatelessWidget {
+  final String label;
+  final List<String> ids;
+  const _AchievementSection({required this.label, required this.ids});
+
+  @override
+  Widget build(BuildContext context) {
+    final defs = ids.map((id) => appAchievements.firstWhere(
+      (a) => a.id == id, orElse: () => AchievementDef(id, id, '', Icons.star))).toList();
+    final isShadow = label == 'SHADOW';
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8, top: 4),
+        child: Row(children: [
+          Text(label, style: GoogleFonts.dmSans(
+            fontSize: 11, fontWeight: FontWeight.w700,
+            color: isShadow ? const Color(0xFF5865F2) : Colors.black38, letterSpacing: 1.2)),
+          if (isShadow) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.lock_rounded, size: 10, color: Color(0xFF5865F2)),
+          ],
+        ]),
+      ),
+      ...defs.map((def) {
+        final isUnlocked = AppStore.isUnlocked(def.id);
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: isUnlocked
+                ? (isShadow ? const Color(0xFF3C3F8F) : const Color(0xFF2C2C2C))
+                : const Color(0xFFEFEFEF),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: isUnlocked
+                    ? (isShadow
+                        ? const Color(0xFF5865F2).withValues(alpha: 0.2)
+                        : const Color(0xFFFFD465).withValues(alpha: 0.15))
+                    : Colors.black12,
+                borderRadius: BorderRadius.circular(12)),
+              child: Icon(def.icon,
+                color: isUnlocked
+                    ? (isShadow ? const Color(0xFF99AAFF) : const Color(0xFFFFD465))
+                    : Colors.black26,
+                size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(def.title, style: GoogleFonts.dmSans(
+                fontSize: 16, fontWeight: FontWeight.w800,
+                color: isUnlocked ? Colors.white : Colors.black45)),
+              const SizedBox(height: 2),
+              Text(def.description, style: GoogleFonts.dmSans(
+                fontSize: 12, color: isUnlocked ? Colors.white54 : Colors.black38)),
+            ])),
+            if (isUnlocked)
+              const Icon(Icons.check_rounded, color: Color(0xFF4CAF50), size: 18),
+          ]),
+        );
+      }),
+      const SizedBox(height: 6),
+    ]);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7186,34 +7557,64 @@ class ModeratorPanelScreen extends StatefulWidget {
 }
 
 class _ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
-  final _passCtrl = TextEditingController();
-  bool _unlocked = false;
-  String _status = '';
+  bool _requesting = false;
+  String? _requestStatus; // null, 'approved', 'pending', 'error'
+  String _approvedUsername = '';
 
-  @override
-  void initState() {
-    super.initState();
-    _unlocked = AppStore.isModerator;
-  }
-
-  void _tryUnlock() {
-    if (_passCtrl.text == _kModPassword) {
-      AppStore.isModerator = true;
-      setState(() { _unlocked = true; _status = ''; });
-    } else {
-      _passCtrl.clear();
-      setState(() => _status = 'Incorrect password');
+  Future<void> _request() async {
+    if (AppStore.currentUser == null) {
+      _showResult('error');
+      return;
     }
+    setState(() => _requesting = true);
+    try {
+      final result = await Supabase.instance.client.rpc('request_moderator') as String;
+      if (result.startsWith('approved:')) {
+        final uname = result.split(':')[1];
+        AppStore.isModerator = true;
+        setState(() {
+          _approvedUsername = uname;
+          _requestStatus = 'approved';
+        });
+        _showResult('approved');
+      } else {
+        setState(() => _requestStatus = 'pending');
+        _showResult('pending');
+      }
+    } catch (_) {
+      _showResult('error');
+    }
+    setState(() => _requesting = false);
   }
 
-  @override
-  void dispose() {
-    _passCtrl.dispose();
-    super.dispose();
+  void _showResult(String status) {
+    final msgs = {
+      'approved': ('Request Successful! 🎉', '$_approvedUsername is now a Moderator.'),
+      'pending': ('Request Received', 'You have not been approved for Moderator yet. Please check with the developer.'),
+      'error': ('Request Failed', 'Could not process your request. Make sure you\'re signed in and try again.'),
+    };
+    final pair = msgs[status]!;
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colors.white,
+      title: Text(pair.$1, style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 20)),
+      content: Text(pair.$2, style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54)),
+      actions: [
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+          onPressed: () => Navigator.pop(ctx),
+          child: Text('OK', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
+      ],
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
+    final isMod = AppStore.isModerator;
+    final isSignedIn = AppStore.currentUser != null && !AppStore.currentUser!.isAnonymous;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -7223,138 +7624,137 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
             children: [
               _FoldsTopBar(title: 'MOD ACCESS', onBack: () => Navigator.pop(context)),
               const SizedBox(height: 24),
-              if (!_unlocked) ...[
-                const SizedBox(height: 40),
-                Container(
-                  width: 72, height: 72,
-                  decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
-                  child: const Icon(Icons.shield_rounded, color: Color(0xFFFFD465), size: 40),
-                ),
-                const SizedBox(height: 20),
-                Text('Moderator Access', style: GoogleFonts.dmSans(fontSize: 24, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 8),
-                Text('Enter your moderator password to access exclusive content.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54)),
-                const SizedBox(height: 32),
-                TextField(
-                  controller: _passCtrl,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Moderator password',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                    filled: true, fillColor: const Color(0xFFF5F5F5),
-                  ),
-                  onSubmitted: (_) => _tryUnlock(),
-                ),
-                if (_status.isNotEmpty) Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(_status, style: GoogleFonts.dmSans(fontSize: 13, color: Colors.red, fontWeight: FontWeight.w600)),
-                ),
-                const SizedBox(height: 16),
-                GestureDetector(
-                  onTap: _tryUnlock,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
-                    child: Center(child: Text('Unlock', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white))),
-                  ),
-                ),
-              ] else ...[
-                // MOD BADGE
+
+              if (isMod) ...[
+                // Mod active state
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color(0xFF2C2C2C), Color(0xFF444444)],
-                      begin: Alignment.topLeft, end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 52, height: 52,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFD465).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(14)),
-                        child: const Icon(Icons.shield_rounded, color: Color(0xFFFFD465), size: 30),
-                      ),
-                      const SizedBox(width: 14),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Moderator', style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
-                          Text('You have exclusive access', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white54)),
-                        ],
-                      ),
-                    ],
-                  ),
+                      begin: Alignment.topLeft, end: Alignment.bottomRight),
+                    borderRadius: BorderRadius.circular(20)),
+                  child: Row(children: [
+                    Container(
+                      width: 52, height: 52,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFD465).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(14)),
+                      child: const Icon(Icons.shield_rounded, color: Color(0xFFFFD465), size: 30)),
+                    const SizedBox(width: 14),
+                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Moderator', style: GoogleFonts.dmSans(
+                        fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
+                      Text('You have exclusive access', style: GoogleFonts.dmSans(
+                        fontSize: 13, color: Colors.white54)),
+                    ]),
+                  ]),
                 ),
-                const SizedBox(height: 24),
-                // Exclusive puzzle pack
+                const SizedBox(height: 16),
                 GestureDetector(
                   onTap: () => Navigator.push(context, MaterialPageRoute(
                     builder: (_) => const PuzzleSelectorScreen(
-                      packName: 'MOD EXCLUSIVE', totalPuzzles: 20, idPrefix: 'mod', idOffset: 0),
-                  )),
+                      packName: 'MOD Exclusive', totalPuzzles: 20, idPrefix: 'mod', idOffset: 0))),
                   child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(16)),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.lock_open_rounded, color: Color(0xFFFFD465), size: 28),
-                        const SizedBox(width: 14),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('MOD EXCLUSIVE PACK', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
-                            Text('20 exclusive puzzles', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white54)),
-                          ],
-                        ),
-                        const Spacer(),
-                        const Icon(Icons.chevron_right_rounded, color: Colors.white38),
-                      ],
-                    ),
+                    width: double.infinity, padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(16)),
+                    child: Row(children: [
+                      const Icon(Icons.lock_open_rounded, color: Color(0xFFFFD465), size: 28),
+                      const SizedBox(width: 14),
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('MOD EXCLUSIVE PACK', style: GoogleFonts.dmSans(
+                          fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                        Text('20 exclusive puzzles', style: GoogleFonts.dmSans(
+                          fontSize: 13, color: Colors.white54)),
+                      ]),
+                      const Spacer(),
+                      const Icon(Icons.chevron_right_rounded, color: Colors.white38),
+                    ]),
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Early access notice
                 Container(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(16)),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.preview_rounded, color: Colors.black38),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Early Access Previews', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800)),
-                          Text('Upcoming packs will appear here before public release.',
-                            style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
-                        ],
-                      )),
-                    ],
-                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(16)),
+                  child: Row(children: [
+                    const Icon(Icons.preview_rounded, color: Colors.black38),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Early Access Previews', style: GoogleFonts.dmSans(
+                        fontSize: 15, fontWeight: FontWeight.w800)),
+                      Text('Upcoming packs appear here before public release.',
+                        style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
+                    ])),
+                  ]),
                 ),
                 const Spacer(),
                 GestureDetector(
-                  onTap: () {
-                    AppStore.isModerator = false;
-                    setState(() => _unlocked = false);
-                  },
+                  onTap: () { AppStore.isModerator = false; setState(() {}); },
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
                     child: Center(child: Text('Sign Out of Mod Access',
-                      style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black45))),
+                      style: GoogleFonts.dmSans(
+                        fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black45))),
                   ),
                 ),
+              ] else ...[
+                const SizedBox(height: 40),
+                Container(
+                  width: 72, height: 72,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
+                  child: const Icon(Icons.shield_outlined, color: Colors.white38, size: 40)),
+                const SizedBox(height: 20),
+                Text('Moderator Access', style: GoogleFonts.dmSans(
+                  fontSize: 24, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Text(
+                  isSignedIn
+                      ? 'Press REQ below. If your username has been pre-approved, you\'ll receive moderator status immediately.'
+                      : 'You must be signed in to request moderator access.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.5)),
+                const SizedBox(height: 48),
+                if (isSignedIn)
+                  GestureDetector(
+                    onTap: _requesting ? null : _request,
+                    child: Container(
+                      width: 100, height: 100,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C), shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 20, offset: const Offset(0, 8))]),
+                      child: Center(
+                        child: _requesting
+                            ? const SizedBox(width: 28, height: 28,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3, color: Colors.white))
+                            : Text('REQ', style: GoogleFonts.dmSans(
+                                fontSize: 20, fontWeight: FontWeight.w800,
+                                color: Colors.white, letterSpacing: 1)),
+                      ),
+                    ),
+                  )
+                else
+                  GestureDetector(
+                    onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const AuthScreen())),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
+                      child: Center(child: Text('Sign In First',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white))),
+                    ),
+                  ),
               ],
             ],
           ),
@@ -7474,7 +7874,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                 final isTop3 = rank <= 3;
                                 final medals = ['🥇', '🥈', '🥉'];
 
-                                return Container(
+                                return GestureDetector(
+                                  onTap: () => showPublicProfile(context,
+                                    username: username,
+                                    xp: xp,
+                                    leaderboardRank: rank,
+                                  ),
+                                  child: Container(
                                   margin: const EdgeInsets.only(bottom: 8),
                                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                   decoration: BoxDecoration(
@@ -7505,6 +7911,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                       style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
                                         color: isTop3 ? Colors.white54 : Colors.black38)),
                                   ]),
+                                  ),
                                 );
                               },
                             ),
@@ -7517,6 +7924,319 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC PROFILE SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC PROFILE POPUP
+// ─────────────────────────────────────────────────────────────────────────────
+void showPublicProfile(BuildContext context, {
+  required String username,
+  required int xp,
+  required int leaderboardRank,
+}) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _PublicProfileSheet(
+      username: username,
+      xp: xp,
+      leaderboardRank: leaderboardRank,
+    ),
+  );
+}
+
+class _PublicProfileSheet extends StatefulWidget {
+  final String username;
+  final int xp;
+  final int leaderboardRank;
+  const _PublicProfileSheet({required this.username, required this.xp, required this.leaderboardRank});
+  @override
+  State<_PublicProfileSheet> createState() => _PublicProfileSheetState();
+}
+
+class _PublicProfileSheetState extends State<_PublicProfileSheet> {
+  Map<String, dynamic>? _profile;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select('username, total_xp, join_date, completed_puzzles, is_moderator, avatar_path')
+          .eq('username', widget.username)
+          .maybeSingle();
+      setState(() { _profile = data; _loading = false; });
+    } catch (_) {
+      setState(() => _loading = false);
+    }
+  }
+
+  void _showBlockConfirm() {
+    Navigator.pop(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: Text('Block ${widget.username}?', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 18)),
+        content: Text('They won\'t appear in your leaderboard or be able to interact with you.',
+          style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('${widget.username} blocked.',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                backgroundColor: const Color(0xFF2C2C2C),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ));
+            },
+            child: Text('Block', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReportConfirm() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: Text('Report ${widget.username}', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 18)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Tell us why you\'re reporting this user.',
+            style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            maxLines: 3,
+            decoration: InputDecoration(
+              hintText: 'e.g. Inappropriate username...',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              filled: true, fillColor: const Color(0xFFF5F5F5)),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              Navigator.pop(context);
+              try {
+                await Supabase.instance.client.from('user_reports').insert({
+                  'reporter_username': AppStore.displayUsername,
+                  'reported_username': widget.username,
+                  'reason': ctrl.text.trim(),
+                  'created_at': DateTime.now().toIso8601String(),
+                });
+              } catch (_) {}
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Report submitted. Thank you.',
+                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                  backgroundColor: const Color(0xFF2C2C2C),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ));
+              }
+            },
+            child: Text('Submit', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final xp = _profile != null ? ((_profile!['total_xp'] as int?) ?? 0) : widget.xp;
+    final rank = XPSystem.rankFromXP(xp);
+    final shieldColor = XPSystem.shieldColor(rank);
+    final joinDate = (_profile?['join_date'] as String?) ?? '';
+    final completed = ((_profile?['completed_puzzles'] as List?)?.length) ?? 0;
+    final isMod = (_profile?['is_moderator'] as bool?) ?? false;
+    final avatarUrl = _profile?['avatar_path'] as String?;
+    final isNetworkUrl = avatarUrl != null && avatarUrl.startsWith('http');
+    final username = (_profile?['username'] as String?) ?? widget.username;
+    final isOwnProfile = username == AppStore.displayUsername;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 60),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF0F0F0),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          const SizedBox(height: 12),
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFFDDDDDD), borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 16),
+          // Content
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+              child: _loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Center(child: CircularProgressIndicator(
+                        color: Color(0xFF2C2C2C), strokeWidth: 3)))
+                  : Column(children: [
+                      // Avatar
+                      Container(
+                        width: 80, height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0xFFEFEFEF),
+                          image: isNetworkUrl ? DecorationImage(
+                            image: NetworkImage(avatarUrl!), fit: BoxFit.cover) : null,
+                        ),
+                        child: !isNetworkUrl
+                            ? const Icon(Icons.person_rounded, color: Color(0xFFC4C4C4), size: 48)
+                            : null,
+                      ),
+                      const SizedBox(height: 14),
+                      // Username + badges
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(username, textAlign: TextAlign.center,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 24, fontWeight: FontWeight.w800, color: Colors.black)),
+                          ),
+                          if (isMod) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(8)),
+                              child: Text('MOD', style: GoogleFonts.dmSans(
+                                fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black)),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (joinDate.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(joinDate, style: GoogleFonts.dmSans(
+                          fontSize: 11, fontWeight: FontWeight.w700,
+                          color: Colors.black38, letterSpacing: 1)),
+                      ],
+                      const SizedBox(height: 20),
+                      // Stats card
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        decoration: BoxDecoration(
+                          color: Colors.white, borderRadius: BorderRadius.circular(20)),
+                        child: IntrinsicHeight(
+                          child: Row(children: [
+                            Expanded(child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(xp.toString(), style: GoogleFonts.dmSans(
+                                  fontSize: 28, fontWeight: FontWeight.w800)),
+                                Text('XP', style: GoogleFonts.dmSans(
+                                  fontSize: 13, color: Colors.black38, fontWeight: FontWeight.w600)),
+                              ],
+                            )),
+                            Container(width: 1, color: const Color(0xFFEFEFEF)),
+                            Expanded(child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (widget.leaderboardRank > 0)
+                                  Text('#${widget.leaderboardRank}', style: GoogleFonts.dmSans(
+                                    fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black38)),
+                                Stack(alignment: Alignment.center, children: [
+                                  Icon(Icons.shield_rounded, color: shieldColor, size: 52),
+                                  Text('$rank', style: GoogleFonts.dmSans(
+                                    fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                                ]),
+                              ],
+                            )),
+                            Container(width: 1, color: const Color(0xFFEFEFEF)),
+                            Expanded(child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text('$completed', style: GoogleFonts.dmSans(
+                                  fontSize: 28, fontWeight: FontWeight.w800)),
+                                Text('Folds\nCompleted', textAlign: TextAlign.center,
+                                  style: GoogleFonts.dmSans(
+                                    fontSize: 13, color: Colors.black38, fontWeight: FontWeight.w600)),
+                              ],
+                            )),
+                          ]),
+                        ),
+                      ),
+                      if (!isOwnProfile) ...[
+                        const SizedBox(height: 12),
+                        Row(children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: _showReportConfirm,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEFEFEF),
+                                  borderRadius: BorderRadius.circular(14)),
+                                child: Center(child: Text('Report',
+                                  style: GoogleFonts.dmSans(fontSize: 14,
+                                    fontWeight: FontWeight.w700, color: Colors.black45))),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: _showBlockConfirm,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFEBEE),
+                                  borderRadius: BorderRadius.circular(14)),
+                                child: Center(child: Text('Block',
+                                  style: GoogleFonts.dmSans(fontSize: 14,
+                                    fontWeight: FontWeight.w700, color: Colors.red))),
+                              ),
+                            ),
+                          ),
+                        ]),
+                      ],
+                    ]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -7536,9 +8256,13 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() => _isLoading = true);
     try {
       if (_isSignUp) {
-        if (_usernameController.text.trim().isEmpty) {
-          throw Exception('Please choose a username.');
-        }
+          if (_usernameController.text.trim().isEmpty) {
+            throw Exception('Please choose a username.');
+          }
+          final available = await AppStore.isUsernameAvailable(_usernameController.text.trim());
+          if (!available) {
+            throw Exception('That username is already taken. Please choose another.');
+          }
         final signUpResponse = await Supabase.instance.client.auth.signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text,
