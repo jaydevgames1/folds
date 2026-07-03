@@ -17,6 +17,12 @@ import 'package:audioplayers/audioplayers.dart';
 // ── Set this to your own private password before building ─────────────────
 const String _kDevPassword = 'ilovefoldy';
 const String _kModPassword = 'foldsmoderator245!';
+final DateTime kFoldsLaunchDate = DateTime(2026, 11, 1);
+int foldsDayNumberFor(DateTime date) {
+  final clean = DateTime(date.year, date.month, date.day);
+  final diff = clean.difference(kFoldsLaunchDate).inDays;
+  return diff >= 0 ? diff + 1 : diff;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -134,15 +140,32 @@ class AppStore {
           .single();
 
       // Write everything down straight into your local SharedPreferences cache
-      await _p?.setString('username', data['username'] ?? 'Puzzle Apprentice');
-      if (data['avatar_path'] != null) {
-        await _p?.setString('avatarPath', data['avatar_path']);
-      } else {
-        await _p?.remove('avatarPath');
-      }
+      // Inside your SharedPreferences write function:
+await _p?.setString('username', data['username'] ?? 'Puzzle Apprentice');
+
+if (data['avatar_path'] != null) {
+  String cachedPath = data['avatar_path'];
+  // If the database returned a relative path, convert it to a full URL before caching locally
+  if (!cachedPath.startsWith('http')) {
+    cachedPath = Supabase.instance.client.storage.from('avatars').getPublicUrl(cachedPath);
+  }
+  await _p?.setString('avatarPath', cachedPath);
+} else {
+  await _p?.remove('avatarPath');
+}
+
       final cloudJoinDate = data['join_date']?.toString() ?? '';
       if (cloudJoinDate.startsWith('JOINED ')) {
+        // Cloud has the real join date — always trust it.
         await _p?.setString('joinDate', cloudJoinDate);
+      } else {
+        // Cloud is missing one (never got pushed after signup). If we already
+        // have a valid local value, repair the cloud row with it — never let
+        // "today" get generated here.
+        final localJoinDate = _p?.getString('joinDate');
+        if (localJoinDate != null && localJoinDate.startsWith('JOINED ')) {
+          _syncToCloud({'join_date': localJoinDate});
+        }
       }
       // If cloud value is missing or badly formatted, keep local value intact
       await _p?.setInt('totalXP', data['total_xp'] ?? 0);
@@ -177,11 +200,18 @@ class AppStore {
         await _p?.setString('lastDailyDate', data['last_daily_date']);
       }
       await _p?.setBool('isModerator', data['is_moderator'] ?? false);
+      await _p?.setBool('isDevProfile', data['is_dev_profile'] ?? false);
+      if (data['unlocked_texture_packs'] != null) {
+        final List<String> list = List<String>.from(data['unlocked_texture_packs']);
+        await _p?.setStringList('unlockedTexturePacks', list);
+      }
+      await _p?.setString('activeTexturePack', data['active_texture_pack'] ?? 'classic');
     } catch (e) {
       debugPrint("Error bringing down cloud profile values: $e");
     }
   }
-
+  static int get parStreak => _p?.getInt('parStreak') ?? 0;
+  static set parStreak(int v) => _p?.setInt('parStreak', v);
   // ── Stats
   static int get totalFlips => _p?.getInt('totalFlips') ?? 0;
   static set totalFlips(int v) {
@@ -199,7 +229,22 @@ class AppStore {
     _syncToCloud({'unlocked_achievements': list});
   }
   static bool isUnlocked(String id) => unlockedAchievements.contains(id);
+  // ── Texture Packs
+  static Set<String> get unlockedTexturePacks =>
+      (_p?.getStringList('unlockedTexturePacks') ?? <String>['classic']).toSet();
+  static void unlockTexturePack(String id) {
+    final s = unlockedTexturePacks..add(id);
+    final list = s.toList();
+    _p?.setStringList('unlockedTexturePacks', list);
+    _syncToCloud({'unlocked_texture_packs': list});
+  }
+  static bool isTexturePackUnlocked(String id) => id == 'classic' || unlockedTexturePacks.contains(id);
 
+  static String get activeTexturePack => _p?.getString('activeTexturePack') ?? 'classic';
+  static set activeTexturePack(String v) {
+    _p?.setString('activeTexturePack', v);
+    _syncToCloud({'active_texture_pack': v});
+  }
   // ── Profile
   // ── Profile
   static String get username => _p?.getString('username') ?? 'Puzzle Apprentice';
@@ -232,14 +277,17 @@ class AppStore {
     _syncToCloud({'avatar_path': v});
   }
 
-  static String get joinDate => _p?.getString('joinDate') ?? _initJoinDate();
-  static String _initJoinDate() {
+  static String get joinDate => _p?.getString('joinDate') ?? _initJoinDateLocalOnly();
+  static String _initJoinDateLocalOnly() {
     final d = DateTime.now();
     final months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
         'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
     final s = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
     _p?.setString('joinDate', s);
-    _syncToCloud({'join_date': s});
+    // Deliberately local-only — this getter can fire incidentally from any
+    // UI read and must never silently overwrite a real join date in Supabase.
+    // Cloud sync for join date only happens in downloadCloudProfile() below
+    // and explicitly right after sign-up.
     return s;
   }
 
@@ -247,6 +295,14 @@ class AppStore {
   static set haptic(bool v) {
     _p?.setBool('haptic', v);
     _syncToCloud({'haptic': v});
+  }
+
+  static DateTime? get lastReceiptsSeen {
+    final s = _p?.getString('lastReceiptsSeen');
+    return s != null ? DateTime.tryParse(s) : null;
+  }
+  static Future<void> markReceiptsSeen() async {
+    await _p?.setString('lastReceiptsSeen', DateTime.now().toIso8601String());
   }
 
   // ── Onboarding
@@ -259,7 +315,10 @@ class AppStore {
 
   // ── Dev profile badge (set via dev panel, persists)
   static bool get isDevProfile => _p?.getBool('isDevProfile') ?? false;
-  static set isDevProfile(bool v) => _p?.setBool('isDevProfile', v);
+  static set isDevProfile(bool v) {
+    _p?.setBool('isDevProfile', v);
+    _syncToCloud({'is_dev_profile': v});
+  }
 
   // ── Streak
   static int get currentStreak => _p?.getInt('currentStreak') ?? 0;
@@ -283,10 +342,7 @@ class AppStore {
 
   // Whether today's daily has been completed (drives fire colour)
   static bool get isStreakDoneToday {
-    final launchDate = DateTime(2026, 06, 1);
-    final today = DateTime.now();
-    final todayClean = DateTime(today.year, today.month, today.day);
-    final dayNumber = todayClean.difference(launchDate).inDays + 1;
+    final dayNumber = foldsDayNumberFor(DateTime.now());
     if (dayNumber < 1) return false;
     return isCompleted('d$dayNumber');
   }
@@ -702,9 +758,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
       }
       // Try to load the latest daily puzzle
       // Day 1 = November 1, 2026. Calculate today's puzzle number.
-      final launchDate = DateTime(2026, 11, 1);
-      final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
-      final dayNumber = today.difference(launchDate).inDays + 1;
+      final dayNumber = foldsDayNumberFor(DateTime.now());
 
       if (dayNumber < 1) {
         // Pre-launch: show a preview puzzle
@@ -740,6 +794,11 @@ class _GameplayScreenState extends State<GameplayScreen> {
   @override
   void dispose() {
     _timer.cancel();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     super.dispose();
     AudioService.stopMusic();
   }
@@ -847,6 +906,19 @@ class _GameplayScreenState extends State<GameplayScreen> {
       if (rawId.startsWith('d')) {
         String dayNumber = rawId.replaceAll(RegExp(r'[^0-9]'), '');
         displayTitle = '#$dayNumber $displayTitle';
+      }
+
+      if (gridCols > gridRows) {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      } else {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
       }
 
       setState(() {
@@ -986,12 +1058,27 @@ class _GameplayScreenState extends State<GameplayScreen> {
       tryUnlock('first_fold');
       if (_gridRows == 6 && _gridCols == 6) tryUnlock('grid_master');
       if (_moves == _par) tryUnlock('flawless');
+      if (_moves == _par + 1) tryUnlock('one_more');
       if (_stopwatch.elapsedMilliseconds < 15000) tryUnlock('speed_demon');
       if (AppStore.totalFlips >= 100) tryUnlock('flippin_crazy');
-                                if (AppStore.totalFlips >= 250) tryUnlock('flipaholic');
-                                if (AppStore.totalFlips >= 500) tryUnlock('addicted_to_flipping');
-                                AppStore.incrementTodayCount();
-                                if (AppStore.todayCompletedCount >= 10) tryUnlock('folding_frenzy');
+      if (AppStore.totalFlips >= 250) tryUnlock('flipaholic');
+      if (AppStore.totalFlips >= 500) tryUnlock('addicted_to_flipping');
+      if (AppStore.totalFlips >= 1000) tryUnlock('flip_god');
+      AppStore.incrementTodayCount();
+      if (AppStore.todayCompletedCount >= 10) tryUnlock('folding_frenzy');
+
+      final nowSolving = DateTime.now();
+      if (nowSolving.hour >= 2 && nowSolving.hour < 4) tryUnlock('night_owl');
+      if (_id.startsWith('d') && nowSolving.hour < 6) tryUnlock('early_bird');
+      if (hasFailed && _moves <= _par) tryUnlock('comeback_kid');
+      if (foldsDayNumberFor(nowSolving) < 1) tryUnlock('beta_tester');
+
+      if (_moves <= _par) {
+        AppStore.parStreak = AppStore.parStreak + 1;
+        if (AppStore.parStreak >= 10) tryUnlock('perfectionist');
+      } else {
+        AppStore.parStreak = 0;
+      }
 
       final alreadyCompleted = AppStore.isCompleted(_id);
       if (!alreadyCompleted) {
@@ -1001,8 +1088,24 @@ class _GameplayScreenState extends State<GameplayScreen> {
       if (_moves <= _par) AppStore.markParCompleted(_id);
       AppStore.markCompleted(_id);
 
+      final totalCompleted = AppStore.puzzlesCompleted + AppStore.dailiesCompleted;
+      if (totalCompleted >= 10) tryUnlock('novice_folder');
+      if (totalCompleted >= 50) tryUnlock('adept_folder');
+      if (totalCompleted >= 150) tryUnlock('expert_folder');
+      if (totalCompleted >= 300) tryUnlock('master_folder');
+
+      final parCount = AppStore.parPuzzles.length;
+      if (parCount >= 10) tryUnlock('par_10');
+      if (parCount >= 50) tryUnlock('par_50');
+      if (parCount >= 150) tryUnlock('par_150');
+
       if (_id.startsWith('d')) {
         if (!alreadyCompleted) AppStore.updateStreak();
+        final streak = AppStore.currentStreak;
+        if (streak >= 7) tryUnlock('streak_7');
+        if (streak >= 30) tryUnlock('streak_30');
+        if (streak >= 100) tryUnlock('streak_100');
+        if (streak >= 365) tryUnlock('streak_365');
       } else if (_id.startsWith('p')) {
         AppStore.recentPack = 'PILOT';
       } else if (_id.startsWith('r')) {
@@ -1958,333 +2061,7 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
     ));
   }
 
-  void _showDevPanel(BuildContext outerContext) {
-    final passCtrl = TextEditingController();
-    final xpCtrl = TextEditingController();
-    final idCtrl = TextEditingController();
-    final modCtrl = TextEditingController();
-    bool unlocked = false;
-    String status = '';
-
-    showDialog(
-      context: outerContext,
-      barrierDismissible: false,
-      barrierColor: Colors.black54,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) {
-          void msg(String m) => setS(() => status = m);
-
-          if (!unlocked) {
-            return AlertDialog(
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: Row(children: [
-                const Icon(Icons.build_rounded, size: 18),
-                const SizedBox(width: 8),
-                Text('Dev Panel', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 20)),
-              ]),
-              content: Column(mainAxisSize: MainAxisSize.min, children: [
-                Text('Enter dev password', style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54)),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: passCtrl,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Password',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true, fillColor: const Color(0xFFF5F5F5),
-                  ),
-                  onSubmitted: (_) {
-                    if (passCtrl.text == _kDevPassword) setS(() => unlocked = true);
-                    else { passCtrl.clear(); msg('Wrong password'); }
-                  },
-                ),
-                if (status.isNotEmpty) Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(status, style: GoogleFonts.dmSans(fontSize: 12, color: Colors.red)),
-                ),
-              ]),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx),
-                  child: Text('Cancel', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700))),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                  onPressed: () {
-                    if (passCtrl.text == _kDevPassword) {
-                      AppStore.isDevProfile = true;
-                      setS(() => unlocked = true);
-                    } else { passCtrl.clear(); msg('Wrong password'); }
-                  },
-                  child: Text('Unlock', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
-                ),
-              ],
-            );
-          }
-
-          final screenSize = MediaQuery.of(ctx).size;
-          return Dialog(
-            backgroundColor: Colors.white,
-            insetPadding: EdgeInsets.symmetric(
-              horizontal: screenSize.width * 0.03,
-              vertical: screenSize.height * 0.03,
-            ),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            child: SizedBox(
-              width: double.maxFinite,
-              height: screenSize.height * 0.92,
-              child: Column(children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF2C2C2C),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.build_rounded, size: 18, color: Color(0xFFFFD465)),
-                    const SizedBox(width: 10),
-                    Text('Developer Panel', style: GoogleFonts.dmSans(
-                      fontWeight: FontWeight.w800, fontSize: 18, color: Colors.white)),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(6)),
-                      child: Text('UNLOCKED', style: GoogleFonts.dmSans(
-                        fontSize: 9, fontWeight: FontWeight.w800, color: Colors.black)),
-                    ),
-                    const SizedBox(width: 10),
-                    GestureDetector(
-                      onTap: () => Navigator.pop(ctx),
-                      child: const Icon(Icons.close_rounded, color: Colors.white54, size: 22)),
-                  ]),
-                ),
-                // Body
-                Expanded(child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Status banner
-                    if (status.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: status.startsWith('✅') ? const Color(0xFFDCFCE7) : const Color(0xFFFFEBEE),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(status, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
-                          color: status.startsWith('✅') ? const Color(0xFF166534) : Colors.red)),
-                      ),
-
-                    _DevLabel('XP'),
-                    Text('Current: ${AppStore.totalXP} XP  •  Rank ${XPSystem.rankFromXP(AppStore.totalXP)}',
-                      style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black45)),
-                    const SizedBox(height: 8),
-                    Row(children: [
-                      Expanded(
-                        child: TextField(
-                          controller: xpCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            hintText: 'XP to add', isDense: true,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            filled: true, fillColor: const Color(0xFFF5F5F5),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                        onPressed: () {
-                          final amt = int.tryParse(xpCtrl.text) ?? 0;
-                          AppStore.totalXP = AppStore.totalXP + amt;
-                          xpCtrl.clear();
-                          msg('✅ Added $amt XP. Total: ${AppStore.totalXP}');
-                        },
-                        child: Text('Add XP', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
-                      ),
-                    ]),
-
-                    _DevLabel('SPECIFIC PUZZLE'),
-                    Row(children: [
-                      Expanded(
-                        child: TextField(
-                          controller: idCtrl,
-                          decoration: InputDecoration(
-                            hintText: 'e.g. p1, r5, d3, x12', isDense: true,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            filled: true, fillColor: const Color(0xFFF5F5F5),
-                          ),
-                        ),
-                      ),
-                    ]),
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      _DevChip(label: 'Complete ✓', onTap: () {
-                        final id = idCtrl.text.trim().toLowerCase();
-                        if (id.isEmpty) { msg('Enter a puzzle ID first'); return; }
-                        AppStore.markCompleted(id); AppStore.markParCompleted(id);
-                        msg('✅ $id marked complete (par)');
-                      }),
-                      _DevChip(label: 'Uncomplete', onTap: () {
-                        final id = idCtrl.text.trim().toLowerCase();
-                        if (id.isEmpty) { msg('Enter a puzzle ID first'); return; }
-                        final comp = AppStore.completedPuzzles..remove(id);
-                        AppStore._p?.setStringList('completedPuzzles', comp.toList());
-                        final par = AppStore.parPuzzles..remove(id);
-                        AppStore._p?.setStringList('parPuzzles', par.toList());
-                        msg('✅ $id uncompleted');
-                      }),
-                      _DevChip(label: 'Open Puzzle', onTap: () {
-                        final id = idCtrl.text.trim().toLowerCase();
-                        if (id.isEmpty) { msg('Enter a puzzle ID first'); return; }
-                        Navigator.pop(ctx);
-                        Navigator.pushAndRemoveUntil(outerContext, PageRouteBuilder(
-                          pageBuilder: (_, __, ___) => GameplayScreen(initialPuzzleId: id),
-                          transitionsBuilder: (_, a, __, child) => SlideTransition(
-                            position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
-                                .animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
-                            child: child),
-                          transitionDuration: const Duration(milliseconds: 320),
-                        ), (r) => false);
-                      }),
-                    ]),
-
-                    _DevLabel('COMPLETE PACKS'),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      _DevChip(label: 'All Pilot ✓', onTap: () {
-                        for (int i = 1; i <= 100; i++) { AppStore.markCompleted('p$i'); AppStore.markParCompleted('p$i'); }
-                        msg('✅ All 100 Pilot puzzles completed');
-                      }),
-                      _DevChip(label: 'Uncomplete Pilot', onTap: () {
-                        final comp = AppStore.completedPuzzles;
-                        for (int i = 1; i <= 100; i++) { comp.remove('p$i'); }
-                        AppStore._p?.setStringList('completedPuzzles', comp.toList());
-                        final par = AppStore.parPuzzles;
-                        for (int i = 1; i <= 100; i++) { par.remove('p$i'); }
-                        AppStore._p?.setStringList('parPuzzles', par.toList());
-                        msg('✅ Pilot pack uncompleted');
-                      }),
-                      _DevChip(label: 'All Rectangle ✓', onTap: () {
-                        for (int i = 1; i <= 100; i++) { AppStore.markCompleted('r$i'); AppStore.markParCompleted('r$i'); }
-                        msg('✅ All 100 Rectangle puzzles completed');
-                      }),
-                      _DevChip(label: 'Uncomplete Rectangle', onTap: () {
-                        final comp = AppStore.completedPuzzles;
-                        for (int i = 1; i <= 100; i++) { comp.remove('r$i'); }
-                        AppStore._p?.setStringList('completedPuzzles', comp.toList());
-                        final par = AppStore.parPuzzles;
-                        for (int i = 1; i <= 100; i++) { par.remove('r$i'); }
-                        AppStore._p?.setStringList('parPuzzles', par.toList());
-                        msg('✅ Rectangle pack uncompleted');
-                      }),
-                      _DevChip(label: 'All Holiday ✓', onTap: () {
-                        for (int i = 1; i <= 25; i++) { AppStore.markCompleted('x$i'); AppStore.markParCompleted('x$i'); }
-                        msg('✅ All 25 Holiday puzzles completed');
-                      }),
-                      _DevChip(label: 'Uncomplete Holiday', onTap: () {
-                        final comp = AppStore.completedPuzzles;
-                        for (int i = 1; i <= 25; i++) { comp.remove('x$i'); }
-                        AppStore._p?.setStringList('completedPuzzles', comp.toList());
-                        final par = AppStore.parPuzzles;
-                        for (int i = 1; i <= 25; i++) { par.remove('x$i'); }
-                        AppStore._p?.setStringList('parPuzzles', par.toList());
-                        msg('✅ Holiday pack uncompleted');
-                      }),
-                    ]),
-
-                    _DevLabel('STREAKS'),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      _DevChip(label: '🔥 Set 7', onTap: () { AppStore.devSetStreak(7); msg('✅ Streak set to 7'); }),
-                      _DevChip(label: '🔥 Set 30', onTap: () { AppStore.devSetStreak(30); msg('✅ Streak set to 30'); }),
-                      _DevChip(label: 'Reset Streak', onTap: () { AppStore.devResetStreak(); msg('✅ Streak reset'); }),
-                      _DevChip(label: 'Mark Daily Done', onTap: () {
-                        final launchDate = DateTime(2026, 11, 1);
-                        final today = DateTime.now();
-                        final todayClean = DateTime(today.year, today.month, today.day);
-                        final dayNumber = todayClean.difference(launchDate).inDays + 1;
-                        if (dayNumber > 0) {
-                          AppStore.markCompleted('d$dayNumber');
-                          AppStore.updateStreak();
-                          msg('✅ Today\'s daily marked done, streak updated');
-                        }
-                      }),
-                    ]),
-
-                    _DevLabel('MODERATOR MANAGEMENT'),
-                    TextField(
-                      controller: modCtrl,
-                      decoration: InputDecoration(
-                        hintText: 'Username to approve/revoke', isDense: true,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                        filled: true, fillColor: const Color(0xFFF5F5F5),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      _DevChip(label: '✓ Approve Mod', onTap: () async {
-                        final u = modCtrl.text.trim();
-                        if (u.isEmpty) { msg('Enter a username'); return; }
-                        try {
-                          await Supabase.instance.client.rpc('approve_moderator', params: {'target_username': u});
-                          msg('✅ $u approved as moderator');
-                        } catch (e) { msg('❌ $e'); }
-                      }),
-                      _DevChip(label: '✕ Revoke Mod', onTap: () async {
-                        final u = modCtrl.text.trim();
-                        if (u.isEmpty) { msg('Enter a username'); return; }
-                        try {
-                          await Supabase.instance.client.rpc('revoke_moderator', params: {'target_username': u});
-                          msg('✅ $u mod revoked');
-                        } catch (e) { msg('❌ $e'); }
-                      }),
-                    ]),
-
-                    _DevLabel('SHADOW ACHIEVEMENTS'),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      _DevChip(label: '🐛 Grant Exterminator', onTap: () {
-                        AppStore.unlockAchievement('exterminator');
-                        msg('✅ Exterminator granted');
-                      }),
-                      _DevChip(label: '🏛 Grant Architect', onTap: () {
-                        AppStore.unlockAchievement('build');
-                        msg('✅ Architect granted');
-                      }),
-                    ]),
-
-                    _DevLabel('NUCLEAR'),
-                    _DevBtn(label: '⚠️ Reset ALL Progress', textColor: Colors.red, onTap: () async {
-                      final go = await showDialog<bool>(context: outerContext, builder: (c) => AlertDialog(
-                        title: Text('Reset everything?', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800)),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                          TextButton(onPressed: () => Navigator.pop(c, true),
-                            child: Text('Confirm', style: GoogleFonts.dmSans(color: Colors.red, fontWeight: FontWeight.w800))),
-                        ],
-                      ));
-                      if (go == true) { await AppStore.resetProgress(); msg('✅ Progress wiped'); }
-                    }),
-                    const SizedBox(height: 4),
-                    _DevBtn(label: '⚠️ Reset All Settings', textColor: Colors.orange, onTap: () async {
-                      await AppStore.resetSettings();
-                      msg('✅ Settings reset to defaults');
-                    }),
-                  ],
-                ),
-              ),
-            ),
-            
-          ])));
-        },
-      ),
-    );
-  }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -2334,7 +2111,7 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
                     flex: 3,
                     child: Container(
                       padding: const EdgeInsets.all(16),
-                      height: 100,
+                      height: 120,
                       decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2345,8 +2122,15 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(color: const Color.fromARGB(0, 66, 66, 68), borderRadius: BorderRadius.circular(6)),
-                            child: Text('#551', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white70)),
+                            child: Text('#${foldsDayNumberFor(DateTime.now())}',
+                              style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white70)),
                           ),
+                          const SizedBox(height: 2),
+                          Text(
+                            foldsDayNumberFor(DateTime.now()) < 1
+                              ? 'Launches in $_countdown'
+                              : 'Next daily in $_countdown',
+                            style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white38)),
                         ],
                       ),
                     ),
@@ -2412,18 +2196,6 @@ Expanded(
         const SizedBox(height: 14),
         Row(
           children: [
-            GestureDetector(
-              onTap: () => _showDevPanel(context),
-              child: Container(
-                width: 52, height: 52,
-                decoration: BoxDecoration(
-                    color: const Color(0xFF2C2C2C),
-                    borderRadius: BorderRadius.circular(14)),
-                child: const Icon(Icons.build_rounded,
-                    color: Colors.white38, size: 22),
-              ),
-            ),
-            const SizedBox(width: 10),
             Expanded(
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 18),
@@ -3325,9 +3097,9 @@ class _PreviewGridPanel extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class FoldCompleteAnimator extends StatefulWidget {
   final String puzzleId;
-  final String puzzleTitle;      // display title (e.g. "Pilot #1" or daily name)
-  final String puzzleShareNumber; // just the number
-  final String packPath;          // "pilot", "daily", "rectangle"
+  final String puzzleTitle;
+  final String puzzleShareNumber;
+  final String packPath;
   final String timeDisplay;
   final int moves;
   final int par;
@@ -3364,77 +3136,47 @@ class FoldCompleteAnimator extends StatefulWidget {
 
 class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
     with TickerProviderStateMixin {
-
-  // Stage controllers
+  // Stage 0: fold left half onto right half, in place (no sliding)
   late AnimationController _foldCtrl;
-  late AnimationController _envelopeCtrl;
-  late AnimationController _flipCtrl;
+  // Stage 1: rotate the now-folded card 90° into landscape
+  late AnimationController _turnCtrl;
+  // Stage 2: stamp pops onto the rotated card
   late AnimationController _stampCtrl;
+  // Stage 3: stats/buttons fade in below
   late AnimationController _statsCtrl;
 
-  // Fold: left half rotates over right
   late Animation<double> _foldAngle;
-
-  // Envelope slides up
-  late Animation<double> _envelopeSlide;
-  late Animation<double> _flapClose;
-
-  // Envelope flip
-  late Animation<double> _flipAngle;
-
-  // Stamp scale
+  late Animation<double> _turnAngle;
   late Animation<double> _stampScale;
-
-  // Stats fade
   late Animation<double> _statsFade;
-  late Animation<double> _statsSlide;
 
-  int _stage = 0; // 0=folding 1=envelope 2=flip 3=stamp 4=stats
+  int _stage = 0; // 0=folding 1=turning 2=stamp 3=stats
 
   bool get _isUnderPar => widget.moves <= widget.par;
 
   @override
   void initState() {
     super.initState();
-
     _foldCtrl = AnimationController(duration: const Duration(milliseconds: 750), vsync: this);
-    _envelopeCtrl = AnimationController(duration: const Duration(milliseconds: 650), vsync: this);
-    _flipCtrl = AnimationController(duration: const Duration(milliseconds: 550), vsync: this);
+    _turnCtrl = AnimationController(duration: const Duration(milliseconds: 600), vsync: this);
     _stampCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
     _statsCtrl = AnimationController(duration: const Duration(milliseconds: 450), vsync: this);
 
-    // Fold: ease in slow, accelerate at end (paper has momentum)
-    _foldAngle = Tween<double>(begin: 0, end: pi / 2).animate(
-      CurvedAnimation(parent: _foldCtrl, curve: Curves.easeInCubic));
-
-    // Envelope: slide up from below the fold position
-    _envelopeSlide = Tween<double>(begin: 60, end: 0).animate(
-      CurvedAnimation(parent: _envelopeCtrl, curve: Curves.easeOutCubic));
-    _flapClose = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _envelopeCtrl,
-          curve: const Interval(0.4, 1.0, curve: Curves.easeInOutCubic)));
-
-    // Flip: slow in middle (physical weight)
-    _flipAngle = Tween<double>(begin: 0, end: pi).animate(
-      CurvedAnimation(parent: _flipCtrl, curve: Curves.easeInOutSine));
-
-    // Stamp: elastic drop
-    _stampScale = Tween<double>(begin: 2.5, end: 1.0).animate(
-      CurvedAnimation(parent: _stampCtrl, curve: Curves.elasticOut));
-
-    _statsFade = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _statsCtrl, curve: Curves.easeOut));
-    _statsSlide = Tween<double>(begin: 28, end: 0).animate(
-      CurvedAnimation(parent: _statsCtrl, curve: Curves.easeOutCubic));
+    _foldAngle = Tween<double>(begin: 0, end: pi / 2)
+        .animate(CurvedAnimation(parent: _foldCtrl, curve: Curves.easeInCubic));
+    _turnAngle = Tween<double>(begin: 0, end: pi / 2)
+        .animate(CurvedAnimation(parent: _turnCtrl, curve: Curves.easeInOutCubic));
+    _stampScale = Tween<double>(begin: 2.5, end: 1.0)
+        .animate(CurvedAnimation(parent: _stampCtrl, curve: Curves.elasticOut));
+    _statsFade = Tween<double>(begin: 0, end: 1)
+        .animate(CurvedAnimation(parent: _statsCtrl, curve: Curves.easeOut));
 
     if (widget.skipAnimation) {
       _foldCtrl.value = 1;
-      _envelopeCtrl.value = 1;
-      _flipCtrl.value = 1;
+      _turnCtrl.value = 1;
       _stampCtrl.value = 1;
-      _stage = 4;
+      _stage = 3;
     }
-
     _runSequence();
   }
 
@@ -3443,26 +3185,22 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
       await _statsCtrl.forward();
       return;
     }
-    await Future.delayed(const Duration(milliseconds: 350));
+    await Future.delayed(const Duration(milliseconds: 300));
     await _foldCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 120));
+    await Future.delayed(const Duration(milliseconds: 150));
     setState(() => _stage = 1);
-    await _envelopeCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 350));
+    await _turnCtrl.forward();
     setState(() => _stage = 2);
-    await _flipCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 100));
-    setState(() => _stage = 3);
     await _stampCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 220));
-    setState(() => _stage = 4);
+    await Future.delayed(const Duration(milliseconds: 150));
+    setState(() => _stage = 3);
     await _statsCtrl.forward();
   }
+
   @override
   void dispose() {
     _foldCtrl.dispose();
-    _envelopeCtrl.dispose();
-    _flipCtrl.dispose();
+    _turnCtrl.dispose();
     _stampCtrl.dispose();
     _statsCtrl.dispose();
     super.dispose();
@@ -3476,152 +3214,126 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+    // Preserve the puzzle's real aspect ratio — this is what makes it work
+    // for 4x4, 6x6, 8x8, AND rectangular (rows≠cols) puzzles.
     final gridWidth = size.width - 32;
-    final gridHeight = gridWidth;
+    final gridHeight = gridWidth * widget.gridRows / widget.gridCols;
+
+    final leftCols = widget.gridCols ~/ 2;
+    final rightCols = widget.gridCols - leftCols;
+    final foldedWidth = gridWidth * rightCols / widget.gridCols;
+
+    // Big enough square to hold the card at any rotation without clipping
+    final boundSize = math.max(foldedWidth, gridHeight);
 
     return SizedBox(
       width: size.width,
-      height: gridHeight + 280,
-      child: Stack(
-        alignment: Alignment.topCenter,
+      height: boundSize + 240,
+      child: Column(
         children: [
-
-          // ── Stage 0: Folding grid ─────────────────────────────
-          if (_stage == 0)
-            AnimatedBuilder(
-              animation: _foldCtrl,
-              builder: (context, child) {
-                final half = gridWidth / 2;
-                return Container(
-                  width: gridWidth,
-                  height: gridWidth,
-                  color: const Color(0xFFE8E8E8),
-                  child: Stack(
-                    children: [
-                      Positioned(
-                        left: half, top: 0,
-                        width: half, height: gridWidth,
-                        child: _GridHalf(
-                          cells: widget.cells,
-                          isLeft: false,
-                          gridRows: widget.gridRows,
-                          gridCols: widget.gridCols,
-                          isHoliday: widget.isHoliday,
-                        ),
-                      ),
-                      Positioned(
-                        left: 0, top: 0,
-                        width: half, height: gridWidth,
-                        child: Transform(
-                          alignment: Alignment.centerRight,
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001)
-                            ..rotateY(_foldAngle.value),
-                          child: _GridHalf(
-                            cells: widget.cells,
-                            isLeft: true,
-                            gridRows: widget.gridRows,
-                            gridCols: widget.gridCols,
-                            isHoliday: widget.isHoliday,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-
-          // ── Stage 1+: Envelope ───────────────────────────────
-          if (_stage >= 1)
-            Positioned(
-              top: gridHeight * 0.1,
-              left: 0,
-              right: 0,
-              child: AnimatedBuilder(
-                animation: Listenable.merge([_envelopeCtrl, _flipCtrl, _stampCtrl]),
-                builder: (context, child) {
-                  final flipVal = _stage >= 2 ? _flipAngle.value : 0.0;
-                  final isFrontVisible = flipVal < pi / 2;
-
-                  return Transform.translate(
-                    offset: Offset(0, _stage == 1 ? _envelopeSlide.value : 0),
-                  child: Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.identity()
-                      ..setEntry(3, 2, 0.001)
-                      ..rotateX(flipVal),
-                    child: SizedBox(
-                      width: gridWidth * 0.85,
-                      height: gridWidth * 0.55,
+          SizedBox(
+            height: boundSize,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                // ── Stage 0: fold left onto right, on the spot ──────────
+                if (_stage == 0)
+                  AnimatedBuilder(
+                    animation: _foldCtrl,
+                    builder: (context, child) => SizedBox(
+                      width: gridWidth,
+                      height: gridHeight,
                       child: Stack(
+                        clipBehavior: Clip.none,
                         children: [
-                          // Envelope body
-                          Container(
-                            decoration: BoxDecoration(
-                              color: isFrontVisible
-                                  ? const Color(0xFFE8E8E8)
-                                  : const Color(0xFF1a1a1a),
-                              borderRadius: BorderRadius.circular(12),
+                          Positioned(
+                            right: 0, top: 0,
+                            width: foldedWidth, height: gridHeight,
+                            child: _GridHalf(
+                              cells: widget.cells, isLeft: false,
+                              gridRows: widget.gridRows, gridCols: widget.gridCols,
+                              isHoliday: widget.isHoliday,
                             ),
                           ),
-
-                          // Front face details
-                          if (isFrontVisible) ...[
-                            // Envelope V flap lines
-                            CustomPaint(
-                              size: Size(gridWidth * 0.85, gridWidth * 0.55),
-                              painter: _EnvelopeFrontPainter(flapProgress: _flapClose.value),
-                            ),
-                          ],
-
-                          // Back face — black with stamp
-                          if (!isFrontVisible) ...[
-                            // Stamp
-                            if (_stage >= 3)
-                              Center(
-                                child: Transform.scale(
-                                  scale: _stampScale.value.clamp(0.0, 10.0),
-                                  child: _StampWidget(isGold: _isUnderPar),
-                                ),
+                          Positioned(
+                            left: 0, top: 0,
+                            width: gridWidth - foldedWidth, height: gridHeight,
+                            child: Transform(
+                              alignment: Alignment.centerRight,
+                              transform: Matrix4.identity()
+                                ..setEntry(3, 2, 0.001)
+                                ..rotateY(_foldAngle.value),
+                              child: _GridHalf(
+                                cells: widget.cells, isLeft: true,
+                                gridRows: widget.gridRows, gridCols: widget.gridCols,
+                                isHoliday: widget.isHoliday,
                               ),
-                      
-                          ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
-                );
-              },
-            ),
-            ),
 
-          // ── Stage 4: Stats ───────────────────────────────────
-          if (_stage >= 4)
-            Positioned(
-              top: gridHeight * 0.65,
-              left: 0,
-              right: 0,
-              child: AnimatedBuilder(
-                animation: _statsCtrl,
-                builder: (context, child) {
-                  return Opacity(
-                    opacity: _statsFade.value,
-                    child: Transform.translate(
-                      offset: Offset(0, _statsSlide.value),
-                      child: _StatsCard(
-                        timeDisplay: widget.timeDisplay,
-                        moves: widget.moves,
-                        par: widget.par,
-                        earnedXP: widget.earnedXP,
-                        isUnderPar: _isUnderPar,
-                        shareText: _shareText,
-                        onRetry: widget.onRetry,
-                        onNext: widget.onNext,
-                      ),
-                    ),
-                  );
-                },
+                // ── Stage 1+: folded card turning into landscape ────────
+                if (_stage >= 1)
+                  AnimatedBuilder(
+                    animation: Listenable.merge([_turnCtrl, _stampCtrl]),
+                    builder: (context, child) {
+                      final angle = _stage == 1 ? _turnAngle.value : pi / 2;
+                      return Transform.rotate(
+                        angle: angle,
+                        child: Container(
+                          width: foldedWidth,
+                          height: gridHeight,
+                          decoration: BoxDecoration(
+                            color: widget.isHoliday ? const Color(0xFF0D1A0D) : const Color(0xFF2C2C2C),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.18),
+                              blurRadius: 16, offset: const Offset(0, 8))],
+                          ),
+                          child: _stage >= 2
+                              ? Transform.rotate(
+                                  // keep the stamp upright once the card itself is landscape
+                                  angle: -pi / 2,
+                                  child: SizedBox(
+                                    width: gridHeight,
+                                    height: foldedWidth,
+                                    child: Center(
+                                      child: Transform.scale(
+                                        scale: _stampScale.value.clamp(0.0, 10.0),
+                                        child: _StampWidget(isGold: _isUnderPar),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+
+          // ── Stats + buttons, always upright underneath the card ─────
+          if (_stage >= 3)
+            AnimatedBuilder(
+              animation: _statsCtrl,
+              builder: (context, child) => Opacity(
+                opacity: _statsFade.value,
+                child: _StatsCard(
+                  timeDisplay: widget.timeDisplay,
+                  moves: widget.moves,
+                  par: widget.par,
+                  earnedXP: widget.earnedXP,
+                  isUnderPar: _isUnderPar,
+                  shareText: _shareText,
+                  onRetry: widget.onRetry,
+                  onNext: widget.onNext,
+                ),
               ),
             ),
         ],
@@ -3647,8 +3359,9 @@ class _GridHalf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final halfCols = gridCols ~/ 2;
-    final startCol = isLeft ? 0 : halfCols;
+    final leftCols = gridCols ~/ 2;
+    final halfCols = isLeft ? leftCols : gridCols - leftCols;
+    final startCol = isLeft ? 0 : leftCols;
     const gap = 6.0;
 
     return LayoutBuilder(
@@ -4130,6 +3843,96 @@ class _FlipCell extends StatefulWidget {
   
 }
 
+
+class _TexturedTileFace extends StatelessWidget {
+  final bool isBlack;
+  final bool isHoliday;
+  const _TexturedTileFace({required this.isBlack, required this.isHoliday});
+
+  Color get _baseColor => isBlack
+      ? (isHoliday ? const Color.fromARGB(255, 226, 10, 10) : const Color(0xFF2C2C2C))
+      : (isHoliday ? const Color.fromARGB(255, 11, 235, 26) : Colors.white);
+
+  @override
+  Widget build(BuildContext context) {
+    switch (AppStore.activeTexturePack) {
+      case 'pixel8':
+        return ClipRRect(borderRadius: BorderRadius.circular(10),
+          child: CustomPaint(painter: _PixelTexturePainter(color: _baseColor, retro: false), child: const SizedBox.expand()));
+      case 'retroPixel':
+        return ClipRRect(borderRadius: BorderRadius.circular(10),
+          child: CustomPaint(painter: _PixelTexturePainter(color: _baseColor, retro: true), child: const SizedBox.expand()));
+      case 'neon':
+        return Container(
+          decoration: BoxDecoration(
+            color: _baseColor, borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: isBlack ? const Color(0xFF00E5FF) : const Color(0xFFFF2FD6), width: 2),
+            boxShadow: [BoxShadow(
+              color: (isBlack ? const Color(0xFF00E5FF) : const Color(0xFFFF2FD6)).withValues(alpha: 0.55),
+              blurRadius: 10, spreadRadius: 1)],
+          ),
+        );
+      case 'wood':
+        return ClipRRect(borderRadius: BorderRadius.circular(10),
+          child: CustomPaint(painter: _WoodTexturePainter(color: _baseColor), child: const SizedBox.expand()));
+      default:
+        return Container(decoration: BoxDecoration(color: _baseColor, borderRadius: BorderRadius.circular(10)));
+    }
+  }
+}
+
+class _PixelTexturePainter extends CustomPainter {
+  final Color color;
+  final bool retro;
+  _PixelTexturePainter({required this.color, required this.retro});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), Paint()..color = color);
+    const blocks = 5;
+    final blockSize = size.width / blocks;
+    final hsl = HSLColor.fromColor(color);
+    for (int r = 0; r < blocks; r++) {
+      for (int c = 0; c < blocks; c++) {
+        final shade = (r + c) % 2 == 0
+            ? hsl.withLightness((hsl.lightness + 0.06).clamp(0.0, 1.0)).toColor()
+            : hsl.withLightness((hsl.lightness - 0.06).clamp(0.0, 1.0)).toColor();
+        canvas.drawRect(Rect.fromLTWH(c * blockSize, r * blockSize, blockSize, blockSize),
+          Paint()..color = shade.withValues(alpha: retro ? 0.35 : 0.22));
+      }
+    }
+    if (retro) {
+      final scanline = Paint()..color = Colors.black.withValues(alpha: 0.10);
+      for (double y = 0; y < size.height; y += 4) {
+        canvas.drawRect(Rect.fromLTWH(0, y, size.width, 1.4), scanline);
+      }
+    }
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..style = PaintingStyle.stroke..strokeWidth = 2..color = Colors.black.withValues(alpha: 0.18));
+  }
+
+  @override
+  bool shouldRepaint(covariant _PixelTexturePainter old) => old.color != color || old.retro != retro;
+}
+
+class _WoodTexturePainter extends CustomPainter {
+  final Color color;
+  _WoodTexturePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), Paint()..color = color);
+    final grain = Paint()..color = Colors.black.withValues(alpha: 0.08)..strokeWidth = 1.5..style = PaintingStyle.stroke;
+    for (double y = 6; y < size.height; y += 7) {
+      final path = Path()..moveTo(0, y);
+      path.quadraticBezierTo(size.width / 2, y + 4, size.width, y);
+      canvas.drawPath(path, grain);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WoodTexturePainter old) => old.color != color;
+}
 class _FlipCellState extends State<_FlipCell> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   bool _showingBlack = false;
@@ -4181,14 +3984,7 @@ class _FlipCellState extends State<_FlipCell> with SingleTickerProviderStateMixi
             transform: Matrix4.identity()..rotateY(angle),
             child: Stack(
                   children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        color: _showingBlack
-                            ? (widget.isHoliday ? const Color.fromARGB(255, 226, 10, 10) : const Color(0xFF2C2C2C))
-                            : (widget.isHoliday ? const Color.fromARGB(255, 11, 235, 26) : Colors.white),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                    _TexturedTileFace(isBlack: _showingBlack, isHoliday: widget.isHoliday),
                 if (widget.linkShape != null)
                   Positioned(
                     top: 3, right: 3,
@@ -4203,6 +3999,103 @@ class _FlipCellState extends State<_FlipCell> with SingleTickerProviderStateMixi
   }
 }
 
+class TexturePacksScreen extends StatefulWidget {
+  const TexturePacksScreen({super.key});
+  @override
+  State<TexturePacksScreen> createState() => _TexturePacksScreenState();
+}
+
+class _TexturePacksScreenState extends State<TexturePacksScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(children: [
+            _FoldsTopBar(title: 'TEXTURE PACKS', onBack: () => Navigator.pop(context)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, crossAxisSpacing: 14, mainAxisSpacing: 14, childAspectRatio: 0.85),
+                itemCount: texturePacks.length,
+                itemBuilder: (context, i) {
+                  final pack = texturePacks[i];
+                  final owned = AppStore.isTexturePackUnlocked(pack.id.name);
+                  final active = AppStore.activeTexturePack == pack.id.name;
+                  return GestureDetector(
+                    onTap: () {
+                      if (!owned) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('Locked — redeem a code to unlock ${pack.name}'),
+                          backgroundColor: const Color(0xFF2C2C2C)));
+                        return;
+                      }
+                      setState(() => AppStore.activeTexturePack = pack.id.name);
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFEFEF),
+                        borderRadius: BorderRadius.circular(18),
+                        border: active ? Border.all(color: const Color(0xFF4CAF50), width: 2.5) : null,
+                      ),
+                      padding: const EdgeInsets.all(14),
+                      child: Column(children: [
+                        Expanded(
+                          child: Opacity(
+                            opacity: owned ? 1.0 : 0.35,
+                            child: Row(children: [
+                              Expanded(child: _PreviewFor(packId: pack.id.name, isBlack: true)),
+                              const SizedBox(width: 6),
+                              Expanded(child: _PreviewFor(packId: pack.id.name, isBlack: false)),
+                            ]),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          if (!owned) const Padding(padding: EdgeInsets.only(right: 4),
+                            child: Icon(Icons.lock_rounded, size: 14, color: Colors.black38)),
+                          Text(pack.name, style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800,
+                            color: owned ? Colors.black : Colors.black38)),
+                        ]),
+                        if (active) Padding(padding: const EdgeInsets.only(top: 4),
+                          child: Text('ACTIVE', style: GoogleFonts.dmSans(
+                            fontSize: 10, fontWeight: FontWeight.w800, color: const Color(0xFF4CAF50), letterSpacing: 1))),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewFor extends StatelessWidget {
+  final String packId;
+  final bool isBlack;
+  const _PreviewFor({required this.packId, required this.isBlack});
+  @override
+  Widget build(BuildContext context) {
+    final color = isBlack ? const Color(0xFF2C2C2C) : Colors.white;
+    return AspectRatio(
+      aspectRatio: 1,
+      child: switch (packId) {
+        'pixel8' => CustomPaint(painter: _PixelTexturePainter(color: color, retro: false)),
+        'retroPixel' => CustomPaint(painter: _PixelTexturePainter(color: color, retro: true)),
+        'neon' => Container(decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: isBlack ? const Color(0xFF00E5FF) : const Color(0xFFFF2FD6), width: 2))),
+        'wood' => CustomPaint(painter: _WoodTexturePainter(color: color)),
+        _ => Container(color: color),
+      },
+    );
+  }
+}
 class _LinkBadge extends StatelessWidget {
   final String shape;
   final bool onBlack;
@@ -4994,7 +4887,7 @@ Container(
       ),
       const SizedBox(height: 6),
       Text(
-        'Redeem custom 16-digit access tokens for grid custom packs, cosmetics, or unique profile marks.',
+        'Redeem custom 16-digit access tokens for texture packs, puzzle packs, or unique profile marks.',
         style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54, height: 1.4),
       ),
       const SizedBox(height: 16),
@@ -5113,9 +5006,8 @@ class _HintCard extends StatelessWidget {
   final String productId;
 
   const _HintCard({
-    required this.label, required this.price,
-    this.badge, required this.productId,
-  });
+    required this.label, required this.price, required this.productId,
+  }) : badge = null;
 
   @override
   Widget build(BuildContext context) {
@@ -5293,6 +5185,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   int _theme = 0;
+  int _versionTapCount = 0;
+  DateTime? _lastVersionTap;
   bool _reducedMotion = false;
   bool _showTimer = AppStore.showTimer;
   bool _enableMs = AppStore.enableMs;
@@ -5406,6 +5300,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         subtitle: 'Disables aesthetic animations',
                         value: _reducedMotion,
                         onChanged: (v) => setState(() => _reducedMotion = v),
+                      ),
+                      _OpenRow(
+                        title: 'Texture Packs',
+                        subtitle: 'Currently: ${texturePacks.firstWhere((t) => t.id.name == AppStore.activeTexturePack, orElse: () => texturePacks.first).name}',
+                        onTap: () => _pushFade(context, const TexturePacksScreen()),
                       ),
 
                       _SectionHeader('GAMEPLAY'),
@@ -5666,8 +5565,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 28),
                       Center(
-                        child: Text('version 1.0.0',
-                          style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
+                        child: GestureDetector(
+                          onTap: () {
+                            _versionTapCount++;
+                            debugPrint('VERSION TAP: $_versionTapCount');
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              duration: const Duration(milliseconds: 400),
+                              content: Text('Tap $_versionTapCount / 7'),
+                            ));
+                            if (_versionTapCount >= 7) {
+                              // _versionTapCount = 0;
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const DevPanelScreen()));
+                            }
+                          },
+                          child: Container(
+                            color: Colors.transparent, // ensures the whole area is tappable, not just glyph pixels
+                            padding: const EdgeInsets.all(12),
+                            child: Text('version 1.0.0',
+                              style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Center(
@@ -5752,7 +5669,7 @@ class _ToggleRow extends StatelessWidget {
             Switch(
               value: value,
               onChanged: enabled ? onChanged : null,
-              activeColor: Colors.white,
+              activeThumbColor: Colors.white,
               activeTrackColor: const Color(0xFF7BD957),
               inactiveThumbColor: Colors.white,
               inactiveTrackColor: const Color(0xFFBDBDBD),
@@ -6390,6 +6307,32 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   int _tab = 0;
+  int _unreadCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnreadCount();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    try {
+      final username = AppStore.displayUsername;
+      final isMod = AppStore.isModerator;
+      final filters = ['recipient.eq.all', 'recipient.eq.$username'];
+      if (isMod) filters.add('recipient.eq.@Moderators');
+      dynamic query = Supabase.instance.client
+          .from('notifications')
+          .select('id')
+          .or(filters.join(','));
+      final lastSeen = AppStore.lastReceiptsSeen;
+      if (lastSeen != null) {
+        query = query.gt('created_at', lastSeen.toIso8601String());
+      }
+      final data = await query;
+      if (mounted) setState(() => _unreadCount = (data as List).length);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -6433,7 +6376,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (AppStore.isDevProfile)
+                    GestureDetector(
+                      onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const DevPanelScreen())),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
+                        child: const Icon(Icons.build_rounded, color: Color(0xFF2C2C2C), size: 18),
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 40, height: 40),
+                  GestureDetector(
+                    onTap: () async {
+                      await Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptsScreen()));
+                      _loadUnreadCount();
+                    },
+                    child: Stack(clipBehavior: Clip.none, children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
+                        child: const Icon(Icons.notifications_rounded, color: Color(0xFF2C2C2C), size: 20),
+                      ),
+                      if (_unreadCount > 0)
+                        Positioned(
+                          top: -4, right: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                            child: Center(child: Text(_unreadCount > 99 ? '99+' : '$_unreadCount',
+                              style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white))),
+                          ),
+                        ),
+                    ]),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
               Expanded(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
@@ -6506,12 +6491,21 @@ class _ProfileTab extends StatefulWidget {
 
 class _ProfileTabState extends State<_ProfileTab> {
   File? _avatarImage;
+  String? _avatarUrl;
 
   @override
   void initState() {
     super.initState();
+    _loadAvatar();
+  }
+
+  void _loadAvatar() {
     final path = AppStore.avatarPath;
-    if (path != null && File(path).existsSync()) {
+    if (path == null) return;
+    if (path.startsWith('http')) {
+      // cache-bust so a re-upload shows immediately instead of a stale CDN copy
+      _avatarUrl = '$path?t=${DateTime.now().millisecondsSinceEpoch}';
+    } else if (File(path).existsSync()) {
       _avatarImage = File(path);
     }
   }
@@ -6519,12 +6513,33 @@ class _ProfileTabState extends State<_ProfileTab> {
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (picked != null) {
-      setState(() => _avatarImage = File(picked.path));
-      AppStore.avatarPath = picked.path;
+    if (picked == null) return;
+    setState(() {
+      _avatarImage = File(picked.path);
+      _avatarUrl = null;
+    });
+
+    final user = AppStore.currentUser;
+    if (user == null || user.isAnonymous) return; // guests get local-only preview
+    try {
+      final bytes = await File(picked.path).readAsBytes();
+      final storagePath = '${user.id}/avatar.jpg';
+      await Supabase.instance.client.storage
+          .from('avatars')
+          .uploadBinary(storagePath, bytes,
+              fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'));
+      final publicUrl = Supabase.instance.client.storage
+          .from('avatars')
+          .getPublicUrl(storagePath);
+      AppStore.avatarPath = publicUrl;
+      setState(() {
+        _avatarUrl = '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+        _avatarImage = null; // prefer the network copy going forward
+      });
+    } catch (e) {
+      debugPrint('Avatar upload failed: $e');
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final xp = AppStore.totalXP;
@@ -6554,9 +6569,11 @@ class _ProfileTabState extends State<_ProfileTab> {
                   color: const Color(0xFFEFEFEF),
                   image: _avatarImage != null
                       ? DecorationImage(image: FileImage(_avatarImage!), fit: BoxFit.cover)
-                      : null,
+                      : _avatarUrl != null
+                          ? DecorationImage(image: NetworkImage(_avatarUrl!), fit: BoxFit.cover)
+                          : null,
                 ),
-                child: _avatarImage == null
+                child: (_avatarImage == null && _avatarUrl == null)
                     ? const Icon(Icons.person_rounded, color: Color(0xFFC4C4C4), size: 72) : null,
               ),
               Positioned(
@@ -6666,21 +6683,18 @@ class _ProfileTabState extends State<_ProfileTab> {
                     ),
                   if (isGuest) const SizedBox(width: 12),
                   GestureDetector(
-                    onTap: () async {
-                      if (isGuest) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sign in to manage your account.')));
-                      } else {
-                        await Navigator.push(context, MaterialPageRoute(builder: (context) => const AccountManagementScreen()));
-                        setState(() {});
-                      }
-                    },
+                    onTap: () => showPublicProfile(context,
+                      username: AppStore.displayUsername,
+                      xp: AppStore.totalXP,
+                      leaderboardRank: 0,
+                    ),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                       decoration: BoxDecoration(
-                        color: isGuest ? const Color(0xFFEFEFEF) : const Color(0xFF2C2C2C),
+                        color: const Color(0xFF2C2C2C),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text('MANAGE ACCOUNT', style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: isGuest ? Colors.black45 : Colors.white, letterSpacing: 0.5)),
+                      child: Text('VIEW PROFILE', style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
                     ),
                   ),
                 ],
@@ -6870,17 +6884,21 @@ class _ProfileTabState extends State<_ProfileTab> {
     
 
           GestureDetector(
-            onTap: () => showPublicProfile(context,
-              username: AppStore.displayUsername,
-              xp: AppStore.totalXP,
-              leaderboardRank: 0,
-            ),
+            onTap: () async {
+              final user = AppStore.currentUser;
+              if (user == null || user.isAnonymous) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sign in to manage your account.')));
+              } else {
+                await Navigator.push(context, MaterialPageRoute(builder: (context) => const AccountManagementScreen()));
+                setState(() {});
+              }
+            },
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
                 color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
-              child: Center(child: Text('View Public Profile',
+              child: Center(child: Text('Manage Account',
                 style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black54))),
             ),
           ),
@@ -6967,6 +6985,24 @@ class _ProgressBar extends StatelessWidget {
 }
 
 
+enum TexturePackId { classic, pixel8, retroPixel, neon, wood }
+
+class TexturePackDef {
+  final TexturePackId id;
+  final String name;
+  final String description;
+  final bool isDefault;
+  const TexturePackDef(this.id, this.name, this.description, {this.isDefault = false});
+}
+
+const texturePacks = [
+  TexturePackDef(TexturePackId.classic, 'Classic', 'The original clean Folds look.', isDefault: true),
+  TexturePackDef(TexturePackId.pixel8, '8-Bit', 'Chunky pixel-art tiles.'),
+  TexturePackDef(TexturePackId.retroPixel, 'Retro 8-Bit', 'Warm dithered CRT-style tiles.'),
+  TexturePackDef(TexturePackId.neon, 'Neon', 'Glowing edges for night mode.'),
+  TexturePackDef(TexturePackId.wood, 'Wood', 'Grained wooden tile texture.'),
+];
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ACHIEVEMENTS DATA
@@ -6983,16 +7019,34 @@ const appAchievements = [
   // ── GETTING STARTED
   AchievementDef('first_fold', 'First Fold', 'Complete your very first puzzle.', Icons.check_circle_outline_rounded),
 
+  // ── PUZZLES COMPLETED (tiered)
+  AchievementDef('novice_folder', 'Novice Folder', 'Complete 10 puzzles.', Icons.check_circle_outline_rounded),
+  AchievementDef('adept_folder', 'Adept Folder', 'Complete 50 puzzles.', Icons.check_circle_outline_rounded),
+  AchievementDef('expert_folder', 'Expert Folder', 'Complete 150 puzzles.', Icons.check_circle_outline_rounded),
+  AchievementDef('master_folder', 'Master Folder', 'Complete 300 puzzles.', Icons.check_circle_outline_rounded),
+
+  // ── PAR MASTERY (tiered)
+  AchievementDef('par_10', 'Sharp Mind', 'Solve 10 puzzles at or under par.', Icons.star_rounded),
+  AchievementDef('par_50', 'Precision Folder', 'Solve 50 puzzles at or under par.', Icons.star_rounded),
+  AchievementDef('par_150', 'Par Legend', 'Solve 150 puzzles at or under par.', Icons.star_rounded),
+
+  // ── STREAKS (tiered)
+  AchievementDef('streak_7', 'Week Warrior', 'Reach a 7-day streak.', Icons.local_fire_department_rounded),
+  AchievementDef('streak_30', 'Monthly Master', 'Reach a 30-day streak.', Icons.local_fire_department_rounded),
+  AchievementDef('streak_100', 'Centurion', 'Reach a 100-day streak.', Icons.local_fire_department_rounded),
+  AchievementDef('streak_365', 'Year of Folds', 'Reach a 365-day streak.', Icons.local_fire_department_rounded),
+
   // ── IN A DAY
   AchievementDef('folding_frenzy', 'Folding Frenzy', 'Complete 10 puzzles in a single day.', Icons.flash_on_rounded),
 
   // ── GRID SIZE
   AchievementDef('grid_master', 'Grid Master', 'Complete a 6×6 puzzle.', Icons.grid_on_rounded),
 
-  // ── FLIPS
+  // ── FLIPS (tiered)
   AchievementDef('flippin_crazy', "Flippin' Crazy", 'Flip a total of 100 cells.', Icons.touch_app_rounded),
   AchievementDef('flipaholic', 'Flipaholic', 'Flip a total of 250 cells.', Icons.touch_app_rounded),
   AchievementDef('addicted_to_flipping', 'Addicted to Flipping', 'Flip a total of 500 cells.', Icons.touch_app_rounded),
+  AchievementDef('flip_god', 'Flip God', 'Flip a total of 1,000 cells.', Icons.touch_app_rounded),
 
   // ── SKILL
   AchievementDef('flawless', 'Flawless Logic', 'Solve a puzzle in the exact par amount of moves.', Icons.lightbulb_outline_rounded),
@@ -7002,6 +7056,13 @@ const appAchievements = [
   AchievementDef('exterminator', 'Exterminator', 'Report a bug to the Folds team.', Icons.bug_report_rounded),
   AchievementDef('build', 'Architect', 'Get a puzzle featured in the game.', Icons.architecture_rounded),
   AchievementDef('just_in_case', 'Just In Case', 'Download all puzzles for offline play.', Icons.cloud_download_rounded),
+  AchievementDef('night_owl', 'Night Owl', 'Solve a puzzle between 2AM and 4AM.', Icons.nightlight_round),
+  AchievementDef('early_bird', 'Early Bird', 'Complete the daily puzzle before 6AM.', Icons.wb_twilight_rounded),
+  AchievementDef('one_more', 'So Close', 'Solve a puzzle in exactly one move over par.', Icons.exposure_plus_1_rounded),
+  AchievementDef('comeback_kid', 'Comeback Kid', 'Solve at par a puzzle you\'d previously failed.', Icons.replay_circle_filled_rounded),
+  AchievementDef('perfectionist', 'Perfectionist', 'Solve 10 puzzles in a row at or under par.', Icons.diamond_rounded),
+  AchievementDef('beta_tester', 'Beta Tester', 'Played Folds before its official launch.', Icons.science_rounded),
+  AchievementDef('chosen_one', 'The Chosen One', 'Hand-picked by the developer. Extremely rare.', Icons.auto_awesome_rounded),
 ];
 
 
@@ -7138,10 +7199,14 @@ class _AchievementsTab extends StatelessWidget {
 
   static const _categories = [
     ('GETTING STARTED', ['first_fold', 'folding_frenzy']),
+    ('PUZZLES COMPLETED', ['novice_folder', 'adept_folder', 'expert_folder', 'master_folder']),
+    ('PAR MASTERY', ['par_10', 'par_50', 'par_150']),
+    ('STREAKS', ['streak_7', 'streak_30', 'streak_100', 'streak_365']),
     ('GRID SIZE', ['grid_master']),
-    ('FLIPS', ['flippin_crazy', 'flipaholic', 'addicted_to_flipping']),
+    ('FLIPS', ['flippin_crazy', 'flipaholic', 'addicted_to_flipping', 'flip_god']),
     ('SKILL', ['flawless', 'speed_demon']),
-    ('SHADOW', ['exterminator', 'build', 'just_in_case']),
+    ('SHADOW', ['exterminator', 'build', 'just_in_case', 'night_owl', 'early_bird',
+                'one_more', 'comeback_kid', 'perfectionist', 'beta_tester', 'chosen_one']),
   ];
 
   @override
@@ -7432,6 +7497,10 @@ Future<void> _processRedeemCode(BuildContext context, String code) async {
       final int xpAmount = int.tryParse(rewardValue) ?? 0;
       AppStore.totalXP = AppStore.totalXP + xpAmount;
       successMessage = '🎉 $xpAmount XP successfully credited to your profile!';
+    } else if (rewardType == 'texture') {
+      AppStore.unlockTexturePack(rewardValue);
+      final def = texturePacks.firstWhere((t) => t.id.name == rewardValue, orElse: () => texturePacks.first);
+      successMessage = '🎨 "${def.name}" texture pack unlocked! Equip it in Settings → Texture Packs.';
     } else if (rewardType == 'skin') {
       successMessage = '💎 ${rewardValue.toUpperCase()} grid style skin unlocked!';
     } else if (rewardType == 'pack') {
@@ -7542,6 +7611,223 @@ class _DeveloperXPMultiplierState extends State<DeveloperXPMultiplier> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+String _ordinal(int day) {
+  if (day >= 11 && day <= 13) return '${day}th';
+  switch (day % 10) {
+    case 1: return '${day}st';
+    case 2: return '${day}nd';
+    case 3: return '${day}rd';
+    default: return '${day}th';
+  }
+}
+
+String _formatFullDate(DateTime dt) {
+  const months = ['','January','February','March','April','May','June',
+      'July','August','September','October','November','December'];
+  return '${_ordinal(dt.day)} ${months[dt.month]}';
+}
+void _showBadgeInfoDialog(BuildContext context, {required String username, required bool isDev, DateTime? modSince}) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colors.white,
+      title: Row(children: [
+        Icon(isDev ? Icons.code_rounded : Icons.shield_rounded,
+          color: isDev ? const Color(0xFF5865F2) : const Color(0xFFFFD465)),
+        const SizedBox(width: 10),
+        Expanded(child: Text('$username is a ${isDev ? 'Developer' : 'Moderator'}',
+          style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 17))),
+      ]),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          isDev
+            ? 'Developers built Folds from the ground up. There\'s only one.'
+            : 'Moderators are trusted community members hand-picked to help keep Folds friendly and fair.',
+          style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54)),
+        if (!isDev && modSince != null) ...[
+          const SizedBox(height: 10),
+          Text('Mod since ${_formatFullDate(modSince)}',
+            style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black38)),
+        ],
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx),
+          child: Text('Close', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45))),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+          onPressed: () {
+            Navigator.pop(ctx);
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const ModsAndDevsScreen()));
+          },
+          child: Text('Learn More', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+}
+
+class ModsAndDevsScreen extends StatelessWidget {
+  const ModsAndDevsScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(children: [
+            _FoldsTopBar(title: 'MODS & DEVS', onBack: () => Navigator.pop(context)),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(top: 20, bottom: 32),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const Icon(Icons.shield_rounded, color: Color(0xFFFFD465), size: 28),
+                    const SizedBox(width: 10),
+                    Text('Moderators', style: GoogleFonts.dmSans(fontSize: 24, fontWeight: FontWeight.w800)),
+                  ]),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Moderators help keep the Folds community friendly, respectful and spam-free. '
+                    'They can send announcements to specific players or the whole community, and help '
+                    'review reports submitted through public profiles.',
+                    style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+                  const SizedBox(height: 14),
+                  Text('How rare is it?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Extremely. Moderators are hand-picked by the developer based on how they show up in the '
+                    'community — helpfulness, patience, and good judgement. There is no application form and '
+                    'no guaranteed path — most players will never be one.',
+                    style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+                  
+                  const SizedBox(height: 14),
+
+                  Text('Can I request it?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  Text(
+                    'There is a request option in Settings → Moderator Access, but sending a request doesn\'t '
+                    'guarantee approval — it just puts your name forward. Being visibly kind and helpful in the '
+                    'community is worth far more than requesting.',
+                    style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+
+                  const SizedBox(height: 14),
+
+                  Text('Do Moderators have an unfair advantage in the game?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  Text(
+                    'No. Moderators do not have any special access to puzzles, answers, or game data. They are '
+                    'simply trusted members of the community who help keep the game safe and enjoyable for'
+                    'everyone, however they sometimes receive certain packs before everyone else as rewards '
+                    'for their efforts in the community and bugfixing. This is a perk, not an advantage, '
+                    'and XP is not rewarded for unreleased packs, or until everyone can play it.',
+                    style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+
+                  const SizedBox(height: 14),
+
+                Text('Do Moderators get paid?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(
+                  'No. Being a moderator is a voluntary position. It is a badge of trust and respect, not '
+                  'a paid job. They are not directly paid for being a Moderator, however they can receive '
+                  'certain packs or in-game purchases for free using promo-codes. These aren\'t limited to '
+                  'Moderators, but it would be more likely for a Moderator to receive these than a regular '
+                  'player.',
+                  style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+
+                const SizedBox(height: 14),
+
+                Text('What if a Moderator breaks the rules?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(
+                  'If you see a Moderator abuse their power, or break Folds Rules, you can report them just '
+                  'like any other player. The developer will review the report and take necessary action. '
+                  'Moderators are held to a higher standard than any other player, and if they break the rules '
+                  'in any way they will be demoted and lose their Moderator status. Moderators are not above the '
+                  'rules and expected to follow them at all times with no exceptions.',
+                  style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+
+                const SizedBox(height: 14),
+
+                Text('How can I improve my chances of becoming a Moderator?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(
+                  'You can mainly interact with the community in the JayDev Games Discord server \(you can find '
+                  'the invite link in the Socials Screen). Be helpful, patient, and kind to others. Consistently '
+                  'being engaging and respectful dramatically increases your chances of being a Moderator more '
+                  'than any request or waiting period. This doesn\'t guarantee Moderator roles, but improves chances '
+                  'of them. If you believe you have what it takes, and have been a positive member of the community, '
+                  'you can speak about it in the JayDev Games Discord server.',
+                  style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+                
+                const SizedBox(height: 14),
+
+                Text('Can Moderators leak content in upcoming updates?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(
+                  'No. Moderators can have access to upcoming unreleased content which is for the eyes for themselves '
+                  'and other Moderators only. If a Moderator leaks content, please'
+                  'the invite link in the Socials Screen). Be helpful, patient, and kind to others. Consistently '
+                  'being engaging and respectful dramatically increases your chances of being a Moderator more '
+                  'than any request or waiting period. This doesn\'t guarantee Moderator roles, but improves chances '
+                  'of them. If you believe you have what it takes, and have been a positive member of the community, '
+                  'you can speak about it in the JayDev Games Discord server.',
+                  style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+
+                const SizedBox(height: 14),
+
+                Text('Can Moderators ban or manage my game account?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(
+                  'No. Moderators cannot ban, suspend, or manage your game account in any way. They can, however, report '
+                  'your account to the developer if they believe you are breaking the Folds Rules, and their opinion will be '
+                  'highly regarded. Only the Developer can take action on your account, and will review any reports made by '
+                  'Moderators or any other player. If you believe a Moderator has unfairly reported you, you can appeal the ban '
+                  'or restriction, or report by contacting the Developer at support@jaydev.games.',
+                  style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+
+
+
+                  const SizedBox(height: 28),
+                  Container(height: 1, color: const Color(0xFFEFEFEF)),
+                  const SizedBox(height: 28),
+                  Row(children: [
+                    const Icon(Icons.code_rounded, color: Color(0xFF5865F2), size: 28),
+                    const SizedBox(width: 10),
+                    Text('Developer', style: GoogleFonts.dmSans(fontSize: 24, fontWeight: FontWeight.w800)),
+                  ]),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Folds is built and maintained by a single developer, JayDev. Every puzzle, every line '
+                    'of code, and every update comes from one person. There is only ever one Developer badge, '
+                    'and it isn\'t given out; it belongs to whoever made the game.',
+                    style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+
+                    const SizedBox(height: 14),
+                  Text('What if I see the Developer break the rules?', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  Text(
+                    'The Developer is expected to follow the same rules but can take the necessary action to '
+                    'any player upon their wishes. It is highly guaranteed the Developer\'s actions are always '
+                    'in the best interest of the game and community, and are justified to fit the situation. If '
+                    'you have a problem or issue with the Developer\'s actions, you can reach out to them directly '
+                    'by mailing them at support@jaydev.games.',
+                    style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.6)),
+                  
+                  const SizedBox(height: 14),
+                ]),
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -7689,6 +7975,20 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
                     ])),
                   ]),
                 ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const ModeratorNotifyScreen())),
+                  child: Container(
+                    width: double.infinity, padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(16)),
+                    child: Row(children: [
+                      const Icon(Icons.campaign_rounded, color: Color(0xFFFFD465), size: 24),
+                      const SizedBox(width: 12),
+                      Text('SEND ANNOUNCEMENT', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ]),
+                  ),
+                ),
                 const Spacer(),
                 GestureDetector(
                   onTap: () { AppStore.isModerator = false; setState(() {}); },
@@ -7785,20 +8085,31 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   Future<void> _load() async {
-    try {
-      final data = await Supabase.instance.client
+  try {
+    final data = await Supabase.instance.client
           .from('profiles')
-          .select('username, total_xp, avatar_path')
+          .select('username, total_xp, avatar_path, is_moderator, is_dev_profile, mod_since')
           .order('total_xp', ascending: false)
           .limit(50);
-      setState(() {
-        _entries = List<Map<String, dynamic>>.from(data);
-        _loading = false;
-      });
-    } catch (e) {
-      setState(() { _error = 'Could not load rankings.'; _loading = false; });
-    }
+        
+    // Convert the database paths into actual functional bucket URLs
+    final parsedEntries = List<Map<String, dynamic>>.from(data).map((row) {
+      final rawPath = row['avatar_path'] as String?;
+      if (rawPath != null && rawPath.isNotEmpty && !rawPath.startsWith('http')) {
+        row['avatar_path'] = Supabase.instance.client.storage.from('avatars').getPublicUrl(rawPath);
+      }
+      return row;
+    }).toList();
+
+    setState(() {
+      _entries = parsedEntries;
+      _loading = false;
+    });
+  } catch (e) {
+    setState(() { _error = 'Could not load rankings.'; _loading = false; });
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -7904,9 +8215,31 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                         style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
                                     ]),
                                     const SizedBox(width: 12),
-                                    Expanded(child: Text(username,
-                                      style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800,
-                                        color: isTop3 ? Colors.white : Colors.black))),
+                                    Expanded(child: Row(children: [
+                                      Flexible(child: Text(username,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800,
+                                          color: isTop3 ? Colors.white : Colors.black))),
+                                      if ((e['is_dev_profile'] as bool?) == true || (e['is_moderator'] as bool?) == true) ...[
+                                        const SizedBox(width: 6),
+                                        GestureDetector(
+                                          onTap: () {
+                                            DateTime? ms;
+                                            final raw = e['mod_since'] as String?;
+                                            if (raw != null) { try { ms = DateTime.parse(raw); } catch (_) {} }
+                                            _showBadgeInfoDialog(context,
+                                              username: username,
+                                              isDev: (e['is_dev_profile'] as bool?) ?? false,
+                                              modSince: ms);
+                                          },
+                                          child: Icon(
+                                            (e['is_dev_profile'] as bool?) == true ? Icons.code_rounded : Icons.shield_rounded,
+                                            size: 15,
+                                            color: (e['is_dev_profile'] as bool?) == true
+                                              ? const Color(0xFF5865F2) : const Color(0xFFFFD465)),
+                                        ),
+                                      ],
+                                    ])),
                                     Text('$xp XP',
                                       style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
                                         color: isTop3 ? Colors.white54 : Colors.black38)),
@@ -7968,17 +8301,27 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
   }
 
   Future<void> _load() async {
-    try {
-      final data = await Supabase.instance.client
-          .from('profiles')
-          .select('username, total_xp, join_date, completed_puzzles, is_moderator, avatar_path')
-          .eq('username', widget.username)
-          .maybeSingle();
-      setState(() { _profile = data; _loading = false; });
-    } catch (_) {
-      setState(() => _loading = false);
+  try {
+    final data = await Supabase.instance.client
+        .from('profiles')
+        .select('username, total_xp, join_date, completed_puzzles, is_moderator, is_dev_profile, avatar_path, mod_since')
+        .eq('username', widget.username)
+        .maybeSingle();
+        
+    if (data != null) {
+      final rawPath = data['avatar_path'] as String?;
+      // Convert it if it's just the relative storage path
+      if (rawPath != null && rawPath.isNotEmpty && !rawPath.startsWith('http')) {
+        data['avatar_path'] = Supabase.instance.client.storage.from('avatars').getPublicUrl(rawPath);
+      }
     }
+
+    setState(() { _profile = data; _loading = false; });
+  } catch (_) {
+    setState(() => _loading = false);
   }
+}
+
 
   void _showBlockConfirm() {
     Navigator.pop(context);
@@ -8076,6 +8419,10 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
     final joinDate = (_profile?['join_date'] as String?) ?? '';
     final completed = ((_profile?['completed_puzzles'] as List?)?.length) ?? 0;
     final isMod = (_profile?['is_moderator'] as bool?) ?? false;
+    final isDev = (_profile?['is_dev_profile'] as bool?) ?? false;
+    DateTime? modSince;
+    final modSinceRaw = _profile?['mod_since'] as String?;
+    if (modSinceRaw != null) { try { modSince = DateTime.parse(modSinceRaw); } catch (_) {} }
     final avatarUrl = _profile?['avatar_path'] as String?;
     final isNetworkUrl = avatarUrl != null && avatarUrl.startsWith('http');
     final username = (_profile?['username'] as String?) ?? widget.username;
@@ -8114,7 +8461,7 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
                           shape: BoxShape.circle,
                           color: const Color(0xFFEFEFEF),
                           image: isNetworkUrl ? DecorationImage(
-                            image: NetworkImage(avatarUrl!), fit: BoxFit.cover) : null,
+                            image: NetworkImage(avatarUrl), fit: BoxFit.cover) : null,
                         ),
                         child: !isNetworkUrl
                             ? const Icon(Icons.person_rounded, color: Color(0xFFC4C4C4), size: 48)
@@ -8131,14 +8478,29 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
                               style: GoogleFonts.dmSans(
                                 fontSize: 24, fontWeight: FontWeight.w800, color: Colors.black)),
                           ),
-                          if (isMod) ...[
+                          if (isDev) ...[
                             const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(8)),
-                              child: Text('MOD', style: GoogleFonts.dmSans(
-                                fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black)),
+                            GestureDetector(
+                              onTap: () => _showBadgeInfoDialog(context, username: username, isDev: true),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF5865F2), borderRadius: BorderRadius.circular(8)),
+                                child: Text('DEV', style: GoogleFonts.dmSans(
+                                  fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
+                              ),
+                            ),
+                          ] else if (isMod) ...[
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => _showBadgeInfoDialog(context, username: username, isDev: false, modSince: modSince),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFD465), borderRadius: BorderRadius.circular(8)),
+                                child: Text('MOD', style: GoogleFonts.dmSans(
+                                  fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black)),
+                              ),
                             ),
                           ],
                         ],
@@ -8237,6 +8599,636 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
   }
 }
 
+class DevPanelScreen extends StatefulWidget {
+  const DevPanelScreen({super.key});
+  @override
+  State<DevPanelScreen> createState() => _DevPanelScreenState();
+}
+
+class _DevPanelScreenState extends State<DevPanelScreen> {
+  bool _unlocked = AppStore.isDevProfile;
+  final _passCtrl = TextEditingController();
+
+  void _confirm(String message, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: error ? Colors.redAccent : const Color(0xFF2C2C2C),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      content: Row(children: [
+        Icon(error ? Icons.error_outline_rounded : Icons.check_circle_rounded,
+          color: Colors.white, size: 18),
+        const SizedBox(width: 10),
+        Expanded(child: Text(message, style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.white))),
+      ]),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_unlocked) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.build_rounded, size: 48, color: Color(0xFF2C2C2C)),
+                const SizedBox(height: 16),
+                Text('Developer Panel', style: GoogleFonts.dmSans(fontSize: 24, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _passCtrl,
+                  obscureText: true,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: 'Password',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    filled: true, fillColor: const Color(0xFFF5F5F5),
+                  ),
+                  onSubmitted: (_) {
+                    if (_passCtrl.text == _kDevPassword) {
+                      AppStore.isDevProfile = true;
+                      setState(() => _unlocked = true);
+                    } else {
+                      _confirm('Wrong password', error: true);
+                    }
+                  },
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
+                  onPressed: () {
+                    if (_passCtrl.text == _kDevPassword) {
+                      AppStore.isDevProfile = true;
+                      setState(() => _unlocked = true);
+                    } else {
+                      _confirm('Wrong password', error: true);
+                    }
+                  },
+                  child: Text('Unlock', style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(height: 12),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return DefaultTabController(
+      length: 6,
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: Text('DEVELOPER PANEL', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
+          leading: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)),
+          bottom: TabBar(
+            isScrollable: true,
+            indicatorColor: const Color(0xFFFFD465),
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white38,
+            tabs: const [
+              Tab(text: 'XP & PUZZLES'), Tab(text: 'PACKS'), Tab(text: 'STREAKS'),
+              Tab(text: 'MODERATORS'), Tab(text: 'NOTIFICATIONS'), Tab(text: 'NUCLEAR'),
+            ],
+          ),
+        ),
+        body: TabBarView(children: [
+          _buildXpTab(), _buildPacksTab(), _buildStreaksTab(),
+          _buildModTab(), _buildNotifTab(), _buildNuclearTab(),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildXpTab() {
+    final xpCtrl = TextEditingController();
+    final idCtrl = TextEditingController();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _DevLabel('XP — Current: ${AppStore.totalXP} (Rank ${XPSystem.rankFromXP(AppStore.totalXP)})'),
+        Row(children: [
+          Expanded(child: TextField(controller: xpCtrl, keyboardType: TextInputType.number,
+            decoration: InputDecoration(hintText: 'XP to add', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))))),
+          const SizedBox(width: 8),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
+            onPressed: () {
+              final amt = int.tryParse(xpCtrl.text) ?? 0;
+              AppStore.totalXP = AppStore.totalXP + amt;
+              xpCtrl.clear();
+              _confirm('Added $amt XP — total ${AppStore.totalXP}');
+            },
+            child: Text('Add', style: GoogleFonts.dmSans(color: Colors.white)),
+          ),
+        ]),
+        _DevLabel('SPECIFIC PUZZLE'),
+        TextField(controller: idCtrl, decoration: InputDecoration(
+          hintText: 'e.g. p1, r5, d3, x12', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _DevChip(label: 'Complete ✓', onTap: () {
+            final id = idCtrl.text.trim().toLowerCase();
+            if (id.isEmpty) { _confirm('Enter a puzzle ID first', error: true); return; }
+            AppStore.markCompleted(id); AppStore.markParCompleted(id);
+            _confirm('$id marked complete');
+          }),
+          _DevChip(label: 'Open Puzzle', onTap: () {
+            final id = idCtrl.text.trim().toLowerCase();
+            if (id.isEmpty) { _confirm('Enter a puzzle ID first', error: true); return; }
+            Navigator.push(context, MaterialPageRoute(builder: (_) => GameplayScreen(initialPuzzleId: id)));
+          }),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _buildPacksTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _DevChip(label: 'All Pilot ✓', onTap: () {
+            for (int i = 1; i <= 100; i++) { AppStore.markCompleted('p$i'); AppStore.markParCompleted('p$i'); }
+            _confirm('Pilot pack completed');
+          }),
+          _DevChip(label: 'All Rectangle ✓', onTap: () {
+            for (int i = 1; i <= 100; i++) { AppStore.markCompleted('r$i'); AppStore.markParCompleted('r$i'); }
+            _confirm('Rectangle pack completed');
+          }),
+          _DevChip(label: 'All Holiday ✓', onTap: () {
+            for (int i = 1; i <= 25; i++) { AppStore.markCompleted('x$i'); AppStore.markParCompleted('x$i'); }
+            _confirm('Holiday pack completed');
+          }),
+        ]),
+        _DevLabel('TEXTURE PACKS'),
+        Wrap(spacing: 8, runSpacing: 8, children: texturePacks.where((t) => !t.isDefault).map((t) =>
+          _DevChip(label: 'Unlock ${t.name}', onTap: () {
+            AppStore.unlockTexturePack(t.id.name);
+            _confirm('${t.name} unlocked');
+          })).toList()),
+      ]),
+    );
+  }
+
+  Widget _buildStreaksTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Wrap(spacing: 8, runSpacing: 8, children: [
+        _DevChip(label: '🔥 Set 7', onTap: () { AppStore.devSetStreak(7); _confirm('Streak set to 7'); }),
+        _DevChip(label: '🔥 Set 30', onTap: () { AppStore.devSetStreak(30); _confirm('Streak set to 30'); }),
+        _DevChip(label: 'Reset Streak', onTap: () { AppStore.devResetStreak(); _confirm('Streak reset'); }),
+        _DevChip(label: 'Mark Daily Done', onTap: () {
+          final dayNumber = foldsDayNumberFor(DateTime.now());
+          if (dayNumber > 0) {
+            AppStore.markCompleted('d$dayNumber');
+            AppStore.updateStreak();
+            _confirm('Day $dayNumber marked done, streak updated');
+          } else {
+            _confirm('Folds hasn\'t launched yet (day $dayNumber)', error: true);
+          }
+        }),
+      ]),
+    );
+  }
+
+  Widget _buildModTab() {
+    final modCtrl = TextEditingController();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(controller: modCtrl, decoration: InputDecoration(
+          hintText: 'Username', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _DevChip(label: '✓ Approve Mod', onTap: () async {
+            final u = modCtrl.text.trim();
+            if (u.isEmpty) { _confirm('Enter a username', error: true); return; }
+            try {
+              await Supabase.instance.client.rpc('approve_moderator', params: {'target_username': u});
+              _confirm('$u approved as moderator');
+            } catch (e) { _confirm('$e', error: true); }
+          }),
+          _DevChip(label: '✕ Revoke Mod', onTap: () async {
+            final u = modCtrl.text.trim();
+            if (u.isEmpty) { _confirm('Enter a username', error: true); return; }
+            try {
+              await Supabase.instance.client.rpc('revoke_moderator', params: {'target_username': u});
+              _confirm('$u revoked');
+            } catch (e) { _confirm('$e', error: true); }
+          }),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _buildNotifTab() {
+    final titleCtrl = TextEditingController();
+    final bodyCtrl = TextEditingController();
+    String recipient = 'all';
+    String? background;
+    const bgOptions = <String, Color>{
+      'Default': Color(0xFFEFEFEF),
+      'Gold': Color(0xFFFFD465),
+      'Green': Color(0xFF7BD957),
+      'Blue': Color(0xFF5865F2),
+      'Red': Color(0xFFE6543A),
+    };
+    return StatefulBuilder(
+      builder: (context, setLocal) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _DevLabel('SEND NOTIFICATION'),
+            TextField(controller: titleCtrl, decoration: InputDecoration(
+              hintText: 'Title', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+            const SizedBox(height: 8),
+            TextField(controller: bodyCtrl, maxLines: 3, decoration: InputDecoration(
+              hintText: 'Message', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+            const SizedBox(height: 12),
+            _DevLabel('RECIPIENT'),
+            _RecipientPicker(initial: 'all', onSelected: (v) => recipient = v),
+            const SizedBox(height: 12),
+            _DevLabel('BACKGROUND'),
+            Wrap(spacing: 8, runSpacing: 8, children: bgOptions.entries.map((e) {
+              final isSelected = background == e.key || (background == null && e.key == 'Default');
+              return GestureDetector(
+                onTap: () => setLocal(() => background = e.key == 'Default' ? null : e.key),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: e.value,
+                    borderRadius: BorderRadius.circular(10),
+                    border: isSelected ? Border.all(color: Colors.black, width: 2) : null,
+                  ),
+                  child: Text(e.key, style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              );
+            }).toList()),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
+              onPressed: () async {
+                if (titleCtrl.text.trim().isEmpty) { _confirm('Enter a title', error: true); return; }
+                if (!await _isValidRecipient(recipient)) {
+                  _confirm('No profile found for "$recipient"', error: true);
+                  return;
+                }
+                try {
+                  await Supabase.instance.client.from('notifications').insert({
+                    'title': titleCtrl.text.trim(),
+                    'body': bodyCtrl.text.trim(),
+                    'recipient': recipient,
+                    'author': AppStore.displayUsername,
+                    'background': background,
+                    'created_at': DateTime.now().toIso8601String(),
+                  });
+                  _confirm('Notification sent to $recipient');
+                  titleCtrl.clear(); bodyCtrl.clear();
+                } catch (e) { _confirm('$e', error: true); }
+              },
+              child: Text('Send', style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w800)),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+
+  Widget _buildNuclearTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(children: [
+        _DevBtn(label: '⚠️ Reset ALL Progress', textColor: Colors.red, onTap: () async {
+          final go = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+            title: const Text('Reset everything?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Confirm')),
+            ],
+          ));
+          if (go == true) { await AppStore.resetProgress(); _confirm('Progress wiped'); }
+        }),
+        _DevBtn(label: '⚠️ Reset All Settings', textColor: Colors.orange, onTap: () async {
+          await AppStore.resetSettings();
+          _confirm('Settings reset');
+        }),
+      ]),
+    );
+  }
+}
+
+class ReceiptsScreen extends StatefulWidget {
+  const ReceiptsScreen({super.key});
+  @override
+  State<ReceiptsScreen> createState() => _ReceiptsScreenState();
+}
+
+class _ReceiptsScreenState extends State<ReceiptsScreen> {
+  List<Map<String, dynamic>> _receipts = [];
+  bool _loading = true;
+  final Set<int> _expanded = {};
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final username = AppStore.displayUsername;
+      final isMod = AppStore.isModerator;
+      final filters = ['recipient.eq.all', 'recipient.eq.$username'];
+      if (isMod) filters.add('recipient.eq.@Moderators');
+      final data = await Supabase.instance.client
+          .from('notifications')
+          .select()
+          .or(filters.join(','))
+          .order('created_at', ascending: false)
+          .limit(100);
+      setState(() { _receipts = List<Map<String, dynamic>>.from(data); _loading = false; });
+      await AppStore.markReceiptsSeen();
+    } catch (e) {
+      setState(() => _loading = false);
+    }
+  }
+
+  Color _bgColor(String? key) {
+    const map = {
+      'Gold': Color(0xFFFFD465), 'Green': Color(0xFF7BD957),
+      'Blue': Color(0xFF5865F2), 'Red': Color(0xFFE6543A),
+    };
+    return map[key] ?? const Color(0xFFEFEFEF);
+  }
+
+  String _formatDate(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dateOnly = DateTime(dt.year, dt.month, dt.day);
+    final diff = today.difference(dateOnly).inDays;
+    if (diff == 0) {
+      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } else if (diff > 0 && diff < 7) {
+      const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+      return days[dt.weekday - 1];
+    }
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
+  String _resolveRecipientLabel(String recipient) {
+    if (recipient == 'all') return 'Everyone';
+    if (recipient == '@Moderators') return 'Moderators';
+    return 'You specifically';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(children: [
+            _FoldsTopBar(title: 'RECEIPTS', onBack: () => Navigator.pop(context)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C)))
+                  : _receipts.isEmpty
+                      ? Center(child: Text('No notifications yet',
+                          style: GoogleFonts.dmSans(fontSize: 15, color: Colors.black38)))
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: ListView.builder(
+                            itemCount: _receipts.length,
+                            itemBuilder: (context, i) {
+                              final r = _receipts[i];
+                              final isExpanded = _expanded.contains(i);
+                              DateTime? created;
+                              try { created = DateTime.parse(r['created_at'].toString()); } catch (_) {}
+                              final bg = _bgColor(r['background'] as String?);
+                              final isColored = r['background'] != null;
+                              return GestureDetector(
+                                onTap: () => setState(() =>
+                                  isExpanded ? _expanded.remove(i) : _expanded.add(i)),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(14)),
+                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                                      Expanded(child: Text(r['title']?.toString() ?? '',
+                                        style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.black87))),
+                                      if (created != null)
+                                        Text(_formatDate(created), style: GoogleFonts.dmSans(
+                                          fontSize: 11, fontWeight: FontWeight.w700,
+                                          color: isColored ? Colors.black54 : Colors.black38)),
+                                    ]),
+                                    const SizedBox(height: 4),
+                                    Text(r['body']?.toString() ?? '',
+                                      maxLines: isExpanded ? null : 2,
+                                      overflow: isExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                                      style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
+                                    if (isExpanded) ...[
+                                      const SizedBox(height: 10),
+                                      Row(children: [
+                                        const Icon(Icons.person_rounded, size: 14, color: Colors.black38),
+                                        const SizedBox(width: 4),
+                                        Text('From: ${r['author']?.toString() ?? 'Folds Team'}',
+                                          style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black45)),
+                                      ]),
+                                      const SizedBox(height: 4),
+                                      Row(children: [
+                                        const Icon(Icons.group_rounded, size: 14, color: Colors.black38),
+                                        const SizedBox(width: 4),
+                                        Text('To: ${_resolveRecipientLabel(r['recipient']?.toString() ?? 'all')}',
+                                          style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black45)),
+                                      ]),
+                                    ],
+                                  ]),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecipientPicker extends StatefulWidget {
+  final ValueChanged<String> onSelected;
+  final String initial;
+  const _RecipientPicker({required this.onSelected, this.initial = 'all'});
+  @override
+  State<_RecipientPicker> createState() => _RecipientPickerState();
+}
+
+class _RecipientPickerState extends State<_RecipientPicker> {
+  late TextEditingController _ctrl;
+  List<String> _suggestions = [];
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initial);
+  }
+
+  void _onChanged(String query) {
+    widget.onSelected(query.trim().isEmpty ? 'all' : query.trim());
+    _debounce?.cancel();
+    if (query.trim().isEmpty) {
+      setState(() => _suggestions = []);
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 250), () async {
+      try {
+        final data = await Supabase.instance.client
+            .from('profiles')
+            .select('username')
+            .ilike('username', '%${query.trim()}%')
+            .limit(6);
+        final names = List<Map<String, dynamic>>.from(data)
+            .map((e) => e['username'].toString()).toList();
+        final options = <String>['all', '@Moderators', ...names]
+            .where((n) => n.toLowerCase().contains(query.trim().toLowerCase()))
+            .toList();
+        if (mounted) setState(() => _suggestions = options);
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() { _debounce?.cancel(); _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      TextField(
+        controller: _ctrl,
+        onChanged: _onChanged,
+        decoration: InputDecoration(
+          hintText: '"all", "@Moderators" or a username',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      if (_suggestions.isNotEmpty)
+        Container(
+          margin: const EdgeInsets.only(top: 6),
+          decoration: BoxDecoration(color: const Color(0xFFF5F5F5), borderRadius: BorderRadius.circular(10)),
+          child: Column(
+            children: _suggestions.map((s) => ListTile(
+              dense: true,
+              title: Text(s, style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+              onTap: () {
+                _ctrl.text = s;
+                widget.onSelected(s);
+                setState(() => _suggestions = []);
+                FocusScope.of(context).unfocus();
+              },
+            )).toList(),
+          ),
+        ),
+    ]);
+  }
+}
+
+/// Confirms a typed recipient actually exists before you're allowed to send.
+Future<bool> _isValidRecipient(String recipient) async {
+  if (recipient == 'all' || recipient == '@Moderators') return true;
+  final available = await AppStore.isUsernameAvailable(recipient);
+  return !available; // "available" username == nobody has it == invalid
+}
+
+class ModeratorNotifyScreen extends StatefulWidget {
+  const ModeratorNotifyScreen({super.key});
+  @override
+  State<ModeratorNotifyScreen> createState() => _ModeratorNotifyScreenState();
+}
+
+class _ModeratorNotifyScreenState extends State<ModeratorNotifyScreen> {
+  final _titleCtrl = TextEditingController();
+  final _bodyCtrl = TextEditingController();
+  String _recipient = 'all';
+  bool _sending = false;
+
+  Future<void> _send() async {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    setState(() => _sending = true);
+    if (!await _isValidRecipient(_recipient)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No profile found for "$_recipient"')));
+        setState(() => _sending = false);
+      }
+      return;
+    }
+    try {
+      await Supabase.instance.client.from('notifications').insert({
+        'title': _titleCtrl.text.trim(),
+        'body': _bodyCtrl.text.trim(),
+        'recipient': _recipient,
+        'author': AppStore.displayUsername,
+        'background': null, // moderators can't customize appearance
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Sent to $_recipient', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+          backgroundColor: const Color(0xFF2C2C2C)));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    }
+    if (mounted) setState(() => _sending = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(children: [
+            _FoldsTopBar(title: 'ANNOUNCEMENT', onBack: () => Navigator.pop(context)),
+            const SizedBox(height: 20),
+            TextField(controller: _titleCtrl, decoration: InputDecoration(
+              hintText: 'Title', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+            const SizedBox(height: 12),
+            TextField(controller: _bodyCtrl, maxLines: 4, decoration: InputDecoration(
+              hintText: 'Message', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+            const SizedBox(height: 12),
+            Align(alignment: Alignment.centerLeft, child: Text('RECIPIENT',
+              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.black38, letterSpacing: 1))),
+            const SizedBox(height: 6),
+            _RecipientPicker(initial: 'all', onSelected: (v) => _recipient = v),
+            const Spacer(),
+            GestureDetector(
+              onTap: _sending ? null : _send,
+              child: Container(
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
+                child: Center(child: _sending
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Text('SEND', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white))),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ]),
+        ),
+      ),
+    );
+  }
+}
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -8281,6 +9273,15 @@ class _AuthScreenState extends State<AuthScreen> {
               email: _emailController.text.trim(),
               password: _passwordController.text,
             );
+            // Explicitly push the real join date to Supabase NOW — don't rely
+            // on an incidental future sync to carry it up.
+            final uid = Supabase.instance.client.auth.currentUser?.id;
+            if (uid != null) {
+              await Supabase.instance.client.from('profiles').update({
+                'join_date': joinStr,
+                'username': _usernameController.text.trim(),
+              }).eq('id', uid);
+            }
             await AppStore.downloadCloudProfile();
           } catch (_) {
             // Sign-in after signup can fail if email confirmation is required —
@@ -8327,7 +9328,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   decoration: BoxDecoration(
                     color: const Color(0xFF2C2C2C),
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 5))],
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 5))],
                   ),
                   child: const Icon(Icons.grid_view_rounded, color: Colors.white, size: 60),
                 ),
@@ -8561,9 +9562,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _goToDaily() {
     AppStore.hasSeenOnboarding = true;
-    final launchDate = DateTime(2026, 11, 1);
-    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
-    final dayNumber = today.difference(launchDate).inDays + 1;
+    final dayNumber = foldsDayNumberFor(DateTime.now());
     final dailyId = dayNumber > 0 ? 'd$dayNumber' : 'p1';
     Navigator.pushReplacement(context, PageRouteBuilder(
       pageBuilder: (_, __, ___) => GameplayScreen(initialPuzzleId: dailyId),
@@ -8733,8 +9732,7 @@ class _TutorialGrid extends StatefulWidget {
     required this.initialCells,
     required this.hintText,
     required this.successText,
-    this.onSolved,
-  });
+  }) : onSolved = null;
 
   @override
   State<_TutorialGrid> createState() => _TutorialGridState();
