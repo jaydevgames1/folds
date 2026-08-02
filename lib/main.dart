@@ -15,6 +15,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'core/constants.dart';
 import 'models/xp_system.dart';
+import 'models/achievement_def.dart';
 
 // ── Set this to your own private password before building ─────────────────
 
@@ -2051,7 +2052,7 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
                   GestureDetector(
                     onTap: () => _pushFade(context, const DailyArchiveScreen()),
                     child: Container(
-                      width: 76, height: 100,
+                      width: 76, height: 120,
                       decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
                       child: Center(child: CustomPaint(size: const Size(28, 24), painter: _ArchiveIconPainter())),
                     ),
