@@ -23,6 +23,8 @@ import 'services/audio_service.dart';
 import 'theme/folds_theme.dart';
 import 'painters/icon_painters.dart';
 import 'painters/texture_painters.dart';
+import 'painters/badge_painters.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -3308,7 +3310,7 @@ class _FlipCellState extends State<_FlipCell> with SingleTickerProviderStateMixi
                 if (widget.linkShape != null)
                   Positioned(
                     top: 3, right: 3,
-                    child: _LinkBadge(shape: widget.linkShape!, onBlack: _showingBlack),
+                    child: LinkBadge(shape: widget.linkShape!, onBlack: _showingBlack),
                   ),
               ],
             ),
@@ -3416,63 +3418,6 @@ class _PreviewFor extends StatelessWidget {
     );
   }
 }
-class _LinkBadge extends StatelessWidget {
-  final String shape;
-  final bool onBlack;
-  const _LinkBadge({required this.shape, required this.onBlack});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = onBlack ? Colors.white70 : Colors.black38;
-    const size = 9.0;
-    switch (shape) {
-      case 'triangle':
-        return CustomPaint(size: const Size(size, size), painter: _TriBadgePainter(color));
-      case 'square':
-        return Container(width: size, height: size, color: color);
-      case 'pentagon':
-        return CustomPaint(size: const Size(size, size), painter: _PentaBadgePainter(color));
-      case 'circle':
-      default:
-        return Container(width: size, height: size,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: color));
-    }
-  }
-}
-
-class _TriBadgePainter extends CustomPainter {
-  final Color color;
-  _TriBadgePainter(this.color);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(size.width / 2, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-  @override bool shouldRepaint(_) => false;
-}
-
-class _PentaBadgePainter extends CustomPainter {
-  final Color color;
-  _PentaBadgePainter(this.color);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path();
-    for (int i = 0; i < 5; i++) {
-      final angle = (i * 72 - 90) * pi / 180;
-      final x = size.width / 2 + size.width / 2 * cos(angle);
-      final y = size.height / 2 + size.height / 2 * sin(angle);
-      i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
-    }
-    path.close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-  @override bool shouldRepaint(_) => false;
-}
-
 
 
 class _SixSMCard extends StatelessWidget {
