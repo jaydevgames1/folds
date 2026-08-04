@@ -16,8 +16,8 @@ import 'package:audioplayers/audioplayers.dart';
 import 'core/constants.dart';
 import 'models/xp_system.dart';
 import 'models/achievement_def.dart';
+import 'models/texture_pack_def.dart';
 
-// ── Set this to your own private password before building ─────────────────
 
 
 void main() async {
@@ -135,8 +135,7 @@ class AppStore {
           .eq('id', currentUser!.id)
           .single();
 
-      // Write everything down straight into your local SharedPreferences cache
-      // Inside your SharedPreferences write function:
+      
 await _p?.setString('username', data['username'] ?? 'Puzzle Apprentice');
 
 if (data['avatar_path'] != null) {
@@ -6792,8 +6791,8 @@ class _ProfileTabState extends State<_ProfileTab> {
           const SizedBox(height: 10),
           _divider(),
 
-          // Drop this right here! It will stay completely hidden 
-    // until "GIVE-MEIN-FINI-TEXP" is typed into your redeem dialog.
+          
+    
     
 
           GestureDetector(
