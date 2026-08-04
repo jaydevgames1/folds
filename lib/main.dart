@@ -26,7 +26,7 @@ import 'painters/texture_painters.dart';
 import 'painters/badge_painters.dart';
 import 'painters/store_shape_painters.dart';
 import 'widgets/shared/folds_top_bar.dart';
-
+import 'widgets/shared/buttons.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1732,7 +1732,7 @@ class PilotPackDetailScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              _BackButton(label: 'BACK TO MORE PUZZLES', onTap: () => Navigator.pop(context)),
+              CustomBackButton(label: 'BACK TO MORE PUZZLES', onTap: () => Navigator.pop(context)),
             ],
           ),
         ),
@@ -1906,7 +1906,7 @@ class PuzzleSelectorScreen extends StatelessWidget {
 
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-              child: _BackButton(label: 'BACK TO MORE PUZZLES', onTap: () => Navigator.pop(context)),
+              child: CustomBackButton(label: 'BACK TO MORE PUZZLES', onTap: () => Navigator.pop(context)),
             ),
           ],
         ),
@@ -2261,28 +2261,6 @@ class _SuccessState extends StatelessWidget {
 }
 
 
-
-class _BackButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _BackButton({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(16)),
-        child: Center(
-          child: Text(label, style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5)),
-        ),
-      ),
-    );
-  }
-}
 
 class _PuzzleSizeCard extends StatelessWidget {
   final String label;
@@ -3760,20 +3738,20 @@ class _DailyArchiveScreenState extends State<DailyArchiveScreen> {
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(children: [
-                      _FilterChip(label: 'All', active: _filterDifficulty == 0,
+                      CustomFilterChip(label: 'All', active: _filterDifficulty == 0,
                         onTap: () => setState(() => _filterDifficulty = 0)),
                       const SizedBox(width: 6),
                       ...List.generate(5, (i) => Padding(
                         padding: const EdgeInsets.only(right: 6),
-                        child: _FilterChip(
+                        child: CustomFilterChip(
                           label: '${'★' * (i + 1)}',
                           active: _filterDifficulty == i + 1,
                           onTap: () => setState(() => _filterDifficulty = _filterDifficulty == i+1 ? 0 : i+1)),
                       )),
-                      _FilterChip(label: '✓ Done', active: _filterStatus == 1,
+                      CustomFilterChip(label: '✓ Done', active: _filterStatus == 1,
                         onTap: () => setState(() => _filterStatus = _filterStatus == 1 ? 0 : 1)),
                       const SizedBox(width: 6),
-                      _FilterChip(label: '○ Todo', active: _filterStatus == 2,
+                      CustomFilterChip(label: '○ Todo', active: _filterStatus == 2,
                         onTap: () => setState(() => _filterStatus = _filterStatus == 2 ? 0 : 2)),
                     ]),
                   ),
@@ -3892,7 +3870,7 @@ class _DailyArchiveScreenState extends State<DailyArchiveScreen> {
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-              child: _BackButton(label: 'BACK TO MORE PUZZLES', onTap: () => Navigator.pop(context)),
+              child: CustomBackButton(label: 'BACK TO MORE PUZZLES', onTap: () => Navigator.pop(context)),
             ),
           ],
         ),
@@ -4321,7 +4299,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         value: _reducedMotion,
                         onChanged: (v) => setState(() => _reducedMotion = v),
                       ),
-                      _OpenRow(
+                      OpenRow(
                         title: 'Texture Packs',
                         subtitle: 'Currently: ${texturePacks.firstWhere((t) => t.id.name == AppStore.activeTexturePack, orElse: () => texturePacks.first).name}',
                         onTap: () => _pushFade(context, const TexturePacksScreen()),
@@ -4399,9 +4377,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
 
                       _SectionHeader('ACCOUNT & DATA'),
-                      _ActionPill(label: 'Restore Purchases', onTap: () {}),
+                      ActionPill(label: 'Restore Purchases', onTap: () {}),
                       const SizedBox(height: 10),
-                      _ActionPill(
+                      ActionPill(
                         label: 'Reset Progress',
                         textColor: const Color(0xFFE6543A),
                         onTap: () async {
@@ -4506,17 +4484,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         value: _optOutData,
                         onChanged: (v) => setState(() => _optOutData = v),
                       ),
-                      _OpenRow(title: 'ToS and Privacy Policy', onTap: () => _launchUrl('https://jaydev.games/privacy')),
+                      OpenRow(title: 'ToS and Privacy Policy', onTap: () => _launchUrl('https://jaydev.games/privacy')),
 
                       _SectionHeader(_t('ABOUT & VERSIONING')),
-                      _OpenRow(
+                      OpenRow(
                         title: 'Moderator Access',
                         subtitle: 'Exclusive content for trusted members',
                         onTap: () => _pushFade(context, const ModeratorPanelScreen()),
                       ),
-                      _ActionPill(label: 'Report a Bug 🐛', onTap: () => _showBugReport(context)),
+                      ActionPill(label: 'Report a Bug 🐛', onTap: () => _showBugReport(context)),
                       const SizedBox(height: 10),
-                      _ActionPill(
+                      ActionPill(
                         label: 'View Tutorial Again',
                         onTap: () {
                           AppStore.hasSeenOnboarding = false;
@@ -4539,11 +4517,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         value: _justDont,
                         onChanged: (v) => setState(() => _justDont = v),
                       ),
-                      _OpenRow(title: _t('Credits'), onTap: () => _pushFade(context, const CreditsScreen())),
-                      _OpenRow(title: _t('Folds Website'), onTap: () => _launchUrl('https://folds.jaydev.games')),
-                      _OpenRow(title: _t('Socials & YouTube'), onTap: () => _pushFade(context, const SocialsScreen())),
+                      OpenRow(title: _t('Credits'), onTap: () => _pushFade(context, const CreditsScreen())),
+                      OpenRow(title: _t('Folds Website'), onTap: () => _launchUrl('https://folds.jaydev.games')),
+                      OpenRow(title: _t('Socials & YouTube'), onTap: () => _pushFade(context, const SocialsScreen())),
                       const SizedBox(height: 16),
-                      _ActionPill(
+                      ActionPill(
                         label: 'Reset All Settings',
                         textColor: const Color(0xFFE6543A),
                         onTap: () async {
@@ -4920,142 +4898,7 @@ class _TrackPlayerCard extends StatelessWidget {
   }
 }
 
-class _DevLabel extends StatelessWidget {
-  final String text;
-  const _DevLabel(this.text);
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 14, bottom: 6),
-    child: Text(text, style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.black38, letterSpacing: 1.2)),
-  );
-}
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-  const _FilterChip({required this.label, required this.active, required this.onTap});
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: active ? const Color(0xFF2C2C2C) : const Color(0xFFEFEFEF),
-        borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: GoogleFonts.dmSans(
-        fontSize: 13, fontWeight: FontWeight.w700,
-        color: active ? Colors.white : Colors.black45)),
-    ),
-  );
-}
-
-class _DevChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _DevChip({required this.label, required this.onTap});
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(8)),
-      child: Text(label, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black)),
-    ),
-  );
-}
-
-class _DevBtn extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  final Color? textColor;
-  const _DevBtn({required this.label, required this.onTap, this.textColor});
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
-      decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(10)),
-      child: Text(label, style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: textColor ?? Colors.black)),
-    ),
-  );
-}
-
-class _ActionPill extends StatelessWidget {
-  final String label;
-  final Color? textColor;
-  final VoidCallback onTap;
-
-  const _ActionPill({required this.label, this.textColor, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFEFEFEF),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Center(
-          child: Text(label,
-            style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: textColor ?? Colors.black26)),
-        ),
-      ),
-    );
-  }
-}
-
-class _OpenRow extends StatelessWidget {
-  final String title;
-  final String? subtitle;
-  final VoidCallback onTap;
-
-  const _OpenRow({required this.title, this.subtitle, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                  style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
-                if (subtitle != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(subtitle!,
-                      style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
-                  ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: onTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFEFEF),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text('OPEN',
-                style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _TimeDisplay extends StatelessWidget {
   final String hour;
@@ -7650,7 +7493,7 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _DevLabel('XP — Current: ${AppStore.totalXP} (Rank ${XPSystem.rankFromXP(AppStore.totalXP)})'),
+        DevLabel('XP — Current: ${AppStore.totalXP} (Rank ${XPSystem.rankFromXP(AppStore.totalXP)})'),
         Row(children: [
           Expanded(child: TextField(controller: xpCtrl, keyboardType: TextInputType.number,
             decoration: InputDecoration(hintText: 'XP to add', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))))),
@@ -7666,18 +7509,18 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
             child: Text('Add', style: GoogleFonts.dmSans(color: Colors.white)),
           ),
         ]),
-        _DevLabel('SPECIFIC PUZZLE'),
+        DevLabel('SPECIFIC PUZZLE'),
         TextField(controller: idCtrl, decoration: InputDecoration(
           hintText: 'e.g. p1, r5, d3, x12', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          _DevChip(label: 'Complete ✓', onTap: () {
+          DevChip(label: 'Complete ✓', onTap: () {
             final id = idCtrl.text.trim().toLowerCase();
             if (id.isEmpty) { _confirm('Enter a puzzle ID first', error: true); return; }
             AppStore.markCompleted(id); AppStore.markParCompleted(id);
             _confirm('$id marked complete');
           }),
-          _DevChip(label: 'Open Puzzle', onTap: () {
+          DevChip(label: 'Open Puzzle', onTap: () {
             final id = idCtrl.text.trim().toLowerCase();
             if (id.isEmpty) { _confirm('Enter a puzzle ID first', error: true); return; }
             Navigator.push(context, MaterialPageRoute(builder: (_) => GameplayScreen(initialPuzzleId: id)));
@@ -7692,22 +7535,22 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
       padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Wrap(spacing: 8, runSpacing: 8, children: [
-          _DevChip(label: 'All Pilot ✓', onTap: () {
+          DevChip(label: 'All Pilot ✓', onTap: () {
             for (int i = 1; i <= 100; i++) { AppStore.markCompleted('p$i'); AppStore.markParCompleted('p$i'); }
             _confirm('Pilot pack completed');
           }),
-          _DevChip(label: 'All Rectangle ✓', onTap: () {
+          DevChip(label: 'All Rectangle ✓', onTap: () {
             for (int i = 1; i <= 100; i++) { AppStore.markCompleted('r$i'); AppStore.markParCompleted('r$i'); }
             _confirm('Rectangle pack completed');
           }),
-          _DevChip(label: 'All Holiday ✓', onTap: () {
+          DevChip(label: 'All Holiday ✓', onTap: () {
             for (int i = 1; i <= 25; i++) { AppStore.markCompleted('x$i'); AppStore.markParCompleted('x$i'); }
             _confirm('Holiday pack completed');
           }),
         ]),
-        _DevLabel('TEXTURE PACKS'),
+        DevLabel('TEXTURE PACKS'),
         Wrap(spacing: 8, runSpacing: 8, children: texturePacks.where((t) => !t.isDefault).map((t) =>
-          _DevChip(label: 'Unlock ${t.name}', onTap: () {
+          DevChip(label: 'Unlock ${t.name}', onTap: () {
             AppStore.unlockTexturePack(t.id.name);
             _confirm('${t.name} unlocked');
           })).toList()),
@@ -7719,10 +7562,10 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Wrap(spacing: 8, runSpacing: 8, children: [
-        _DevChip(label: '🔥 Set 7', onTap: () { AppStore.devSetStreak(7); _confirm('Streak set to 7'); }),
-        _DevChip(label: '🔥 Set 30', onTap: () { AppStore.devSetStreak(30); _confirm('Streak set to 30'); }),
-        _DevChip(label: 'Reset Streak', onTap: () { AppStore.devResetStreak(); _confirm('Streak reset'); }),
-        _DevChip(label: 'Mark Daily Done', onTap: () {
+        DevChip(label: '🔥 Set 7', onTap: () { AppStore.devSetStreak(7); _confirm('Streak set to 7'); }),
+        DevChip(label: '🔥 Set 30', onTap: () { AppStore.devSetStreak(30); _confirm('Streak set to 30'); }),
+        DevChip(label: 'Reset Streak', onTap: () { AppStore.devResetStreak(); _confirm('Streak reset'); }),
+        DevChip(label: 'Mark Daily Done', onTap: () {
           final dayNumber = foldsDayNumberFor(DateTime.now());
           if (dayNumber > 0) {
             AppStore.markCompleted('d$dayNumber');
@@ -7745,7 +7588,7 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
           hintText: 'Username', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          _DevChip(label: '✓ Approve Mod', onTap: () async {
+          DevChip(label: '✓ Approve Mod', onTap: () async {
             final u = modCtrl.text.trim();
             if (u.isEmpty) { _confirm('Enter a username', error: true); return; }
             try {
@@ -7753,7 +7596,7 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
               _confirm('$u approved as moderator');
             } catch (e) { _confirm('$e', error: true); }
           }),
-          _DevChip(label: '✕ Revoke Mod', onTap: () async {
+          DevChip(label: '✕ Revoke Mod', onTap: () async {
             final u = modCtrl.text.trim();
             if (u.isEmpty) { _confirm('Enter a username', error: true); return; }
             try {
@@ -7783,17 +7626,17 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
         return SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _DevLabel('SEND NOTIFICATION'),
+            DevLabel('SEND NOTIFICATION'),
             TextField(controller: titleCtrl, decoration: InputDecoration(
               hintText: 'Title', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
             const SizedBox(height: 8),
             TextField(controller: bodyCtrl, maxLines: 3, decoration: InputDecoration(
               hintText: 'Message', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
             const SizedBox(height: 12),
-            _DevLabel('RECIPIENT'),
+            DevLabel('RECIPIENT'),
             _RecipientPicker(initial: 'all', onSelected: (v) => recipient = v),
             const SizedBox(height: 12),
-            _DevLabel('BACKGROUND'),
+            DevLabel('BACKGROUND'),
             Wrap(spacing: 8, runSpacing: 8, children: bgOptions.entries.map((e) {
               final isSelected = background == e.key || (background == null && e.key == 'Default');
               return GestureDetector(
@@ -7843,7 +7686,7 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(children: [
-        _DevBtn(label: '⚠️ Reset ALL Progress', textColor: Colors.red, onTap: () async {
+        DevBtn(label: '⚠️ Reset ALL Progress', textColor: Colors.red, onTap: () async {
           final go = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
             title: const Text('Reset everything?'),
             actions: [
@@ -7853,7 +7696,7 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
           ));
           if (go == true) { await AppStore.resetProgress(); _confirm('Progress wiped'); }
         }),
-        _DevBtn(label: '⚠️ Reset All Settings', textColor: Colors.orange, onTap: () async {
+        DevBtn(label: '⚠️ Reset All Settings', textColor: Colors.orange, onTap: () async {
           await AppStore.resetSettings();
           _confirm('Settings reset');
         }),
