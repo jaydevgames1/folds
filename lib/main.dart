@@ -24,6 +24,8 @@ import 'theme/folds_theme.dart';
 import 'painters/icon_painters.dart';
 import 'painters/texture_painters.dart';
 import 'painters/badge_painters.dart';
+import 'painters/store_shape_painters.dart';
+import 'widgets/shared/folds_top_bar.dart';
 
 
 void main() async {
@@ -1476,7 +1478,7 @@ class _PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'PUZZLES', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'PUZZLES', onBack: () => Navigator.pop(context)),
               const SizedBox(height: 24),
               Row(
                 children: [
@@ -1620,7 +1622,7 @@ class PilotPackDetailScreen extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'PILOT PACK', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'PILOT PACK', onBack: () => Navigator.pop(context)),
               const SizedBox(height: 24),
               Expanded(
                 child: Column(
@@ -1773,7 +1775,7 @@ class PuzzleSelectorScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: Column(
                 children: [
-                  _FoldsTopBar(title: '$packName PACK', onBack: () => Navigator.pop(context)),
+                  FoldsTopBar(title: '$packName PACK', onBack: () => Navigator.pop(context)),
                   const SizedBox(height: 16),
                   // Progress bar
                   Container(
@@ -2258,47 +2260,7 @@ class _SuccessState extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED WIDGETS
-// ─────────────────────────────────────────────────────────────────────────────
-class _FoldsTopBar extends StatelessWidget {
-  final String title;
-  final VoidCallback onBack;
 
-  const _FoldsTopBar({required this.title, required this.onBack});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        GestureDetector(
-          onTap: onBack,
-          child: Container(
-            width: 40, height: 40,
-            decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
-            child: Center(
-              child: Transform.rotate(
-                angle: 3.1416 / 4,
-                child: Container(
-                  width: 14, height: 14,
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: Colors.black, width: 2.5),
-                      bottom: BorderSide(color: Colors.black, width: 2.5),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        Text(title, style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 0.5, color: Colors.black)),
-        const SizedBox(width: 40),
-      ],
-    );
-  }
-}
 
 class _BackButton extends StatelessWidget {
   final String label;
@@ -3336,7 +3298,7 @@ class _TexturePacksScreenState extends State<TexturePacksScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(children: [
-            _FoldsTopBar(title: 'TEXTURE PACKS', onBack: () => Navigator.pop(context)),
+            FoldsTopBar(title: 'TEXTURE PACKS', onBack: () => Navigator.pop(context)),
             const SizedBox(height: 16),
             Expanded(
               child: GridView.builder(
@@ -3772,7 +3734,7 @@ class _DailyArchiveScreenState extends State<DailyArchiveScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: Column(
                 children: [
-                  _FoldsTopBar(title: 'DAILY PUZZLES', onBack: () => Navigator.pop(context)),
+                  FoldsTopBar(title: 'DAILY PUZZLES', onBack: () => Navigator.pop(context)),
                   const SizedBox(height: 16),
                   Container(
                     height: 32,
@@ -3951,7 +3913,7 @@ class StoreScreen extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'STORE', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'STORE', onBack: () => Navigator.pop(context)),
               const SizedBox(height: 16),
 
               // ── Expansion discount banner ─────────────────
@@ -3990,13 +3952,13 @@ class StoreScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
 
-              // ── Stacked full-width packs ──────────────────
+              
               // ── Stacked full-width packs ──────────────────
               _FullWidthStoreCard(
                 title: 'NO ADS',
                 subtitle: 'REMOVE ALL ADS FOREVER',
                 price: '\$2.99',
-                shape: _StoreShape.noAds,
+                shape: StoreShape.noAds,
                 productId: 'games.jaydev.folds.no_ads',
               ),
               const SizedBox(height: 12),
@@ -4004,7 +3966,7 @@ class StoreScreen extends StatelessWidget {
                 title: 'RECTANGLE PACK',
                 subtitle: '100 PUZZLES',
                 price: '\$2.99',
-                shape: _StoreShape.rectangle,
+                shape: StoreShape.rectangle,
                 productId: 'games.jaydev.folds.rectangle_pack',
               ),
               const SizedBox(height: 12),
@@ -4095,13 +4057,13 @@ Container(
   }
 }
 
-enum _StoreShape { rectangle, circle, hexa, noAds }
+
 
 class _FullWidthStoreCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final String price;
-  final _StoreShape shape;
+  final StoreShape shape;
   final String productId;
 
   const _FullWidthStoreCard({
@@ -4129,7 +4091,7 @@ class _FullWidthStoreCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               child: Row(
                 children: [
-                  _ShapeWidget(shape: shape, size: 64),
+                  ShapeWidget(shape: shape, size: 64),
                   const SizedBox(width: 20),
                   Expanded(
                     child: Column(
@@ -4234,120 +4196,7 @@ class _HintCard extends StatelessWidget {
   }
 }
 
-// ── Shape widget ──────────────────────────────────────────────────────────────
-class _ShapeWidget extends StatelessWidget {
-  final _StoreShape shape;
-  final double size;
 
-  const _ShapeWidget({required this.shape, required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    switch (shape) {
-      case _StoreShape.rectangle:
-        return CustomPaint(size: Size(size, size * 0.7), painter: _RectanglePainter());
-      case _StoreShape.circle:
-        return CustomPaint(size: Size(size, size), painter: _CirclePainter());
-      case _StoreShape.hexa:
-        return CustomPaint(size: Size(size, size), painter: _HexaPainter());
-      case _StoreShape.noAds:
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: size, height: size,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white10),
-            ),
-            Text('ADS',
-              style: GoogleFonts.dmSans(fontSize: size * 0.25, fontWeight: FontWeight.w800, color: Colors.white)),
-            CustomPaint(size: Size(size, size), painter: _NoBanPainter()),
-          ],
-        );
-    }
-  }
-}
-
-class _RectanglePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.white;
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width / 2, size.height), paint);
-    canvas.drawRect(Rect.fromLTWH(size.width / 2, 0, size.width / 2, size.height),
-      Paint()..color = const Color(0xFF2C2C2C));
-  }
-  @override bool shouldRepaint(_) => false;
-}
-
-class _CirclePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.width / 2;
-    canvas.drawCircle(c, r, Paint()..color = Colors.white);
-    final path = Path()
-      ..moveTo(size.width, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.save();
-    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: c, radius: r)));
-    canvas.drawPath(path, Paint()..color = const Color(0xFF2C2C2C));
-    canvas.restore();
-  }
-  @override bool shouldRepaint(_) => false;
-}
-
-class _HexaPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final r = size.width / 2;
-    final path = Path();
-    for (int i = 0; i < 6; i++) {
-      final angle = (i * 60 - 30) * 3.1416 / 180;
-      final x = cx + r * cos(angle);
-      final y = cy + r * sin(angle);
-      if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
-    }
-    path.close();
-    canvas.drawPath(path, Paint()..color = Colors.white);
-    final clip = Path()..addPath(path, Offset.zero);
-    canvas.save();
-    canvas.clipPath(clip);
-    final dark = Path()
-      ..moveTo(size.width, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(dark, Paint()..color = const Color(0xFF2C2C2C));
-    canvas.restore();
-  }
-  @override bool shouldRepaint(_) => false;
-}
-
-class _NoBanPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.red
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = size.width * 0.08;
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.width / 2 - paint.strokeWidth / 2;
-    canvas.drawCircle(c, r, paint);
-    canvas.drawLine(
-      Offset(c.dx + r * cos(2.356), c.dy + r * sin(2.356)),
-      Offset(c.dx + r * cos(5.498), c.dy + r * sin(5.498)),
-      paint,
-    );
-  }
-  @override bool shouldRepaint(_) => false;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SETTINGS SCREEN
-// ─────────────────────────────────────────────────────────────────────────────
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -4357,7 +4206,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   int _theme = 0;
   int _versionTapCount = 0;
-  DateTime? _lastVersionTap;
+  DateTime? lastVersionTap;
   bool _reducedMotion = false;
   bool _showTimer = AppStore.showTimer;
   bool _enableMs = AppStore.enableMs;
@@ -4451,7 +4300,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'SETTINGS', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'SETTINGS', onBack: () => Navigator.pop(context)),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.only(top: 16, bottom: 32),
@@ -5259,7 +5108,7 @@ class CreditsScreen extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'CREDITS', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'CREDITS', onBack: () => Navigator.pop(context)),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.only(top: 20, bottom: 32),
@@ -5335,7 +5184,7 @@ class SocialsScreen extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'SOCIALS', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'SOCIALS', onBack: () => Navigator.pop(context)),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -6774,7 +6623,7 @@ class ModsAndDevsScreen extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(children: [
-            _FoldsTopBar(title: 'MODS & DEVS', onBack: () => Navigator.pop(context)),
+            FoldsTopBar(title: 'MODS & DEVS', onBack: () => Navigator.pop(context)),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(top: 20, bottom: 32),
@@ -6998,7 +6847,7 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'MOD ACCESS', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'MOD ACCESS', onBack: () => Navigator.pop(context)),
               const SizedBox(height: 24),
 
               if (isMod) ...[
@@ -7213,7 +7062,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              _FoldsTopBar(title: 'TOP FOLDERS', onBack: () => Navigator.pop(context)),
+              FoldsTopBar(title: 'TOP FOLDERS', onBack: () => Navigator.pop(context)),
               const SizedBox(height: 16),
               // My rank card
               if (AppStore.currentUser != null)
@@ -8082,7 +7931,7 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(children: [
-            _FoldsTopBar(title: 'RECEIPTS', onBack: () => Navigator.pop(context)),
+            FoldsTopBar(title: 'RECEIPTS', onBack: () => Navigator.pop(context)),
             const SizedBox(height: 16),
             Expanded(
               child: _loading
@@ -8289,7 +8138,7 @@ class _ModeratorNotifyScreenState extends State<ModeratorNotifyScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(children: [
-            _FoldsTopBar(title: 'ANNOUNCEMENT', onBack: () => Navigator.pop(context)),
+            FoldsTopBar(title: 'ANNOUNCEMENT', onBack: () => Navigator.pop(context)),
             const SizedBox(height: 20),
             TextField(controller: _titleCtrl, decoration: InputDecoration(
               hintText: 'Title', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),

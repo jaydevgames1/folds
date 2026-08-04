@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 
 class AppSettings {
   static bool showTimer = true;

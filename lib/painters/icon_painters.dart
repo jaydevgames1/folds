@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:folds/core/constants.dart';
 
 class HomeIconPainter extends CustomPainter {
   @override
