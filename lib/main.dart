@@ -28,6 +28,7 @@ import 'painters/store_shape_painters.dart';
 import 'widgets/shared/folds_top_bar.dart';
 import 'widgets/shared/buttons.dart';
 import 'widgets/shared/form_controls.dart';
+import 'widgets/shared/misc.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -559,7 +560,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                     const Spacer(),
                     Text('Difficulty:', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
                     const SizedBox(height: 4),
-                    _StarRating(filled: _difficulty, total: 5),
+                    StarRating(filled: _difficulty, total: 5),
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1067,7 +1068,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             children: [
                               Text('Difficulty:', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w400, color: Colors.black54)),
                               const SizedBox(height: 4),
-                              _StarRating(filled: _difficulty, total: 5),
+                              StarRating(filled: _difficulty, total: 5),
                             ],
                           ),
                         ],
@@ -3390,25 +3391,6 @@ class _SixSMCard extends StatelessWidget {
   }
 }
 
-class _StarRating extends StatelessWidget {
-  final int filled;
-  final int total;
-  const _StarRating({required this.filled, required this.total});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(total, (i) => Icon(
-        i < filled ? Icons.star_rounded : Icons.star_outline_rounded,
-        size: 26,
-        color: i < filled ? Colors.black : Colors.black26,
-      )),
-    );
-  }
-}
-
-
 
 enum _PackShapeType { square, rectangle, circle, hexagon }
 
@@ -4364,7 +4346,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Text('Current Track',
                         style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
                       const SizedBox(height: 10),
-                      _TrackPlayerCard(
+                      TrackPlayerCard(
                         isPlaying: _isPlaying,
                         onPlayToggle: () => setState(() {
                           _isPlaying = !_isPlaying;
@@ -4609,85 +4591,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
-
-class _TrackPlayerCard extends StatelessWidget {
-  final bool isPlaying;
-  final VoidCallback onPlayToggle;
-  final double volume;
-  final ValueChanged<double> onVolumeChanged;
-
-  const _TrackPlayerCard({
-    required this.isPlaying,
-    required this.onPlayToggle,
-    required this.volume,
-    required this.onVolumeChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 56, height: 56,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8E8E8),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.music_note_rounded, color: Color(0xFF2C2C2C), size: 28),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Thrifty & Swifty',
-                    style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
-                  Text('Broke Making Bank',
-                    style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black38)),
-                ],
-              ),
-            ),
-            GestureDetector(
-              onTap: onPlayToggle,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 150),
-                child: Icon(
-                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  key: ValueKey(isPlaying),
-                  color: Colors.black,
-                  size: 30,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            const Icon(Icons.volume_down_rounded, color: Colors.black38, size: 18),
-            Expanded(
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  activeTrackColor: const Color(0xFF2C2C2C),
-                  inactiveTrackColor: const Color(0xFFBDBDBD),
-                  thumbColor: const Color(0xFFE8E8E8),
-                  overlayColor: Colors.black12,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                  trackHeight: 4,
-                ),
-                child: Slider(value: volume, onChanged: onVolumeChanged),
-              ),
-            ),
-            const Icon(Icons.volume_up_rounded, color: Colors.black38, size: 18),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREDITS SCREEN
@@ -5352,7 +5255,7 @@ class _ProfileTabState extends State<_ProfileTab> {
             ],
           ),
           const SizedBox(height: 10),
-          _ProgressBar(progress: xpProgress, color: const Color(0xFFFFD465),
+          ProgressBar(progress: xpProgress, color: const Color(0xFFFFD465),
               label: '$xp XP total'),
               
           // ── SECRET DEV PANEL ───────────────────────────────────────────
@@ -5470,7 +5373,7 @@ class _ProfileTabState extends State<_ProfileTab> {
               ],
             ),
             const SizedBox(height: 10),
-            _ProgressBar(
+            ProgressBar(
               progress: recentPack == 'PILOT'
                   ? pilotTotal / 100
                   : AppStore.completedInRange('r', 0, 100) / 100,
@@ -5560,46 +5463,6 @@ class _ProfileTabState extends State<_ProfileTab> {
     child: Container(height: 1, color: const Color(0xFFEFEFEF)),
   );
 }
-
-class _ProgressBar extends StatelessWidget {
-  final double progress;
-  final Color color;
-  final String label;
-  const _ProgressBar({required this.progress, required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final pct = (progress * 100).toInt();
-    return Stack(
-      children: [
-        Container(
-          height: 26,
-          decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(13)),
-          child: Row(
-            children: [
-              Expanded(
-                flex: pct,
-                child: Container(decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(13))),
-              ),
-              Expanded(flex: 100 - pct, child: const SizedBox()),
-            ],
-          ),
-        ),
-        Positioned.fill(
-          child: Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Text(label,
-                style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black54)),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 
 
 // ─────────────────────────────────────────────────────────────────────────────
