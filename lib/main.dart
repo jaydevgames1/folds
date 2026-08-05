@@ -40,7 +40,7 @@ void main() async {
   ]);
   await Supabase.initialize(
     url: 'https://kvihtmzgthznjtwqtbvg.supabase.co',
-    anonKey: 'sb_publishable_hznxJ0hZwXRvO-KHZuoYag_RXPDWfWI',
+    publishableKey: 'sb_publishable_hznxJ0hZwXRvO-KHZuoYag_RXPDWfWI',
   );
   await AppStore.init();
   await AudioService.init();
@@ -6594,7 +6594,6 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
         
     if (data != null) {
       final rawPath = data['avatar_path'] as String?;
-      // Convert it if it's just the relative storage path
       if (rawPath != null && rawPath.isNotEmpty && !rawPath.startsWith('http')) {
         data['avatar_path'] = Supabase.instance.client.storage.from('avatars').getPublicUrl(rawPath);
       }
