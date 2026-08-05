@@ -27,6 +27,7 @@ import 'painters/badge_painters.dart';
 import 'painters/store_shape_painters.dart';
 import 'widgets/shared/folds_top_bar.dart';
 import 'widgets/shared/buttons.dart';
+import 'widgets/shared/form_controls.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -4285,15 +4286,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _SectionHeader('VISUAL'),
-                      _SegmentedRow(
+                      SectionHeader('VISUAL'),
+                      SegmentedRow(
                         title: 'Theme',
                         hint: 'Based off of local time',
                         options: const ['LIGHT', 'DARK', 'AUTO'],
                         selected: _theme,
                         onChanged: (i) => setState(() => _theme = i),
                       ),
-                      _ToggleRow(
+                      ToggleRow(
                         title: 'Reduced Motion',
                         subtitle: 'Disables aesthetic animations',
                         value: _reducedMotion,
@@ -4305,8 +4306,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onTap: () => _pushFade(context, const TexturePacksScreen()),
                       ),
 
-                      _SectionHeader('GAMEPLAY'),
-                      _ToggleRow(
+                      SectionHeader('GAMEPLAY'),
+                      ToggleRow(
                         title: 'Show Timer',
                         value: _showTimer,
                         onChanged: (v) => setState(() {
@@ -4320,7 +4321,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       Padding(
                         padding: const EdgeInsets.only(left: 16),
-                        child: _ToggleRow(
+                        child: ToggleRow(
                           title: 'Enable Milliseconds',
                           titleSize: 15,
                           enabled: _showTimer,
@@ -4331,7 +4332,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           }),
                         ),
                       ),
-                      _SegmentedRow(
+                      SegmentedRow(
                         title: 'Moves Display',
                         options: const ['DOTS', 'NUMBERS'],
                         selected: _movesDisplay,
@@ -4340,7 +4341,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           AppStore.movesDisplay = i;
                         }),
                       ),
-                      _ToggleRow(
+                      ToggleRow(
                         title: 'Haptic Vibration',
                         value: _haptic,
                         onChanged: (v) => setState(() {
@@ -4350,8 +4351,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }),
                       ),
 
-                      _SectionHeader('AUDIO'),
-                      _SliderRow(
+                      SectionHeader('AUDIO'),
+                      SliderRow(
                         title: 'SFX',
                         value: _sfx,
                         onChanged: (v) => setState(() {
@@ -4376,7 +4377,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }),
                       ),
 
-                      _SectionHeader('ACCOUNT & DATA'),
+                      SectionHeader('ACCOUNT & DATA'),
                       ActionPill(label: 'Restore Purchases', onTap: () {}),
                       const SizedBox(height: 10),
                       ActionPill(
@@ -4413,22 +4414,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           }
                         },
                       ),
-                      _SectionHeader('PERFORMANCE'),
-                      _SegmentedRow(
+                      SectionHeader('PERFORMANCE'),
+                      SegmentedRow(
                         title: 'Frame Rate Cap',
                         subtitle: 'Maximum frame rate. Affects smoothness & feel',
                         options: const ['30 FPS', '60 FPS', '120 FPS'],
                         selected: _frameRate,
                         onChanged: (i) => setState(() => _frameRate = i),
                       ),
-                      _ToggleRow(
+                      ToggleRow(
                         title: 'Static Backgrounds',
                         value: _staticBg,
                         onChanged: (v) => setState(() => _staticBg = v),
                       ),
 
-                      _SectionHeader('NOTIFICATIONS'),
-                      _ToggleRow(
+                      SectionHeader('NOTIFICATIONS'),
+                      ToggleRow(
                         title: 'Daily Fold Notif',
                         subtitle: 'Sends a daily reminder to do your daily Folds!',
                         value: _dailyNotif,
@@ -4453,7 +4454,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     AppStore.setNotifTime(picked);
                                   }
                                 },
-                                child: _TimeDisplay(
+                                child: TimeDisplay(
                                   hour: _notifTime.hour.toString().padLeft(2, '0'),
                                   minute: _notifTime.minute.toString().padLeft(2, '0'),
                                 ),
@@ -4461,15 +4462,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ],
                           ),
                         ),
-                      _ToggleRow(
+                      ToggleRow(
                         title: 'New Packs Notif',
                         subtitle: 'Notifies you if any new packs come out!',
                         value: _newPacksNotif,
                         onChanged: (v) => setState(() => _newPacksNotif = v),
                       ),
 
-                      _SectionHeader('ADVANCED INPUT'),
-                      _SegmentedRow(
+                      SectionHeader('ADVANCED INPUT'),
+                      SegmentedRow(
                         title: 'Handed Mode',
                         subtitle: 'Flips orientation for landscape puzzles',
                         options: const ['RIGHT', 'LEFT'],
@@ -4477,8 +4478,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: (i) => setState(() => _handedMode = i),
                       ),
 
-                      _SectionHeader('PRIVACY & SECURITY'),
-                      _ToggleRow(
+                      SectionHeader('PRIVACY & SECURITY'),
+                      ToggleRow(
                         title: 'Opt Out of Data Usage',
                         subtitle: 'Disables using your data for personal & general enhancement',
                         value: _optOutData,
@@ -4486,7 +4487,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       OpenRow(title: 'ToS and Privacy Policy', onTap: () => _launchUrl('https://jaydev.games/privacy')),
 
-                      _SectionHeader(_t('ABOUT & VERSIONING')),
+                      SectionHeader(_t('ABOUT & VERSIONING')),
                       OpenRow(
                         title: 'Moderator Access',
                         subtitle: 'Exclusive content for trusted members',
@@ -4511,7 +4512,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                       ),
                       const SizedBox(height: 10),
-                      _ToggleRow(
+                      ToggleRow(
                         title: _t('Just Dont...'),
                         subtitle: _t('Please dont toggle this on.'),
                         value: _justDont,
@@ -4609,217 +4610,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  const _SectionHeader(this.label);
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 20, bottom: 8),
-      child: Text(label,
-        style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black38, letterSpacing: 1.2)),
-    );
-  }
-}
-
-class _ToggleRow extends StatelessWidget {
-  final String title;
-  final String? subtitle;
-  final double titleSize;
-  final bool value;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  const _ToggleRow({
-    required this.title,
-    this.subtitle,
-    this.titleSize = 20,
-    this.enabled = true,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.4,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                    style: GoogleFonts.dmSans(fontSize: titleSize, fontWeight: FontWeight.w800, color: Colors.black)),
-                  if (subtitle != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(subtitle!,
-                        style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Switch(
-              value: value,
-              onChanged: enabled ? onChanged : null,
-              activeThumbColor: Colors.white,
-              activeTrackColor: const Color(0xFF7BD957),
-              inactiveThumbColor: Colors.white,
-              inactiveTrackColor: const Color(0xFFBDBDBD),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SegmentedRow extends StatelessWidget {
-  final String title;
-  final String? subtitle;
-  final String? hint;
-  final List<String> options;
-  final int selected;
-  final ValueChanged<int> onChanged;
-
-  const _SegmentedRow({
-    required this.title,
-    this.subtitle,
-    this.hint,
-    required this.options,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                      style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
-                    if (subtitle != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(subtitle!,
-                          style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black38)),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              _SegmentedControl(options: options, selected: selected, onChanged: onChanged),
-            ],
-          ),
-          if (hint != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Text(hint!,
-                  style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black26)),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SegmentedControl extends StatelessWidget {
-  final List<String> options;
-  final int selected;
-  final ValueChanged<int> onChanged;
-
-  const _SegmentedControl({required this.options, required this.selected, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFEFEF),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: List.generate(options.length, (i) {
-          final isSelected = i == selected;
-          return GestureDetector(
-            onTap: () => onChanged(i),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFFD6D6D6) : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(options[i],
-                style: GoogleFonts.dmSans(
-                  fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                  color: isSelected ? Colors.black : Colors.black38,
-                  letterSpacing: 0.5,
-                )),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-}
-
-class _SliderRow extends StatelessWidget {
-  final String title;
-  final double value;
-  final ValueChanged<double> onChanged;
-
-  const _SliderRow({required this.title, required this.value, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 70,
-            child: Text(title,
-              style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
-          ),
-          Expanded(
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                activeTrackColor: const Color(0xFF2C2C2C),
-                inactiveTrackColor: const Color(0xFFBDBDBD),
-                thumbColor: const Color(0xFFE8E8E8),
-                overlayColor: Colors.black12,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 11),
-                trackHeight: 6,
-              ),
-              child: Slider(value: value, onChanged: onChanged),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _TrackPlayerCard extends StatelessWidget {
   final bool isPlaying;
   final VoidCallback onPlayToggle;
@@ -4898,43 +4688,6 @@ class _TrackPlayerCard extends StatelessWidget {
   }
 }
 
-
-
-class _TimeDisplay extends StatelessWidget {
-  final String hour;
-  final String minute;
-  const _TimeDisplay({required this.hour, required this.minute});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _digitBox(hour[0]),
-        const SizedBox(width: 4),
-        _digitBox(hour[1]),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: Text(':', style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
-        ),
-        _digitBox(minute[0]),
-        const SizedBox(width: 4),
-        _digitBox(minute[1]),
-      ],
-    );
-  }
-
-  Widget _digitBox(String d) {
-    return Container(
-      width: 28, height: 36,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(d, style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-    );
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREDITS SCREEN
