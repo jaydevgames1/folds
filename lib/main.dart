@@ -28,6 +28,7 @@ import 'widgets/shared/misc.dart';
 import 'widgets/gameplay/flip_cell.dart';
 import 'widgets/gameplay/fold_complete_animator.dart';
 import 'widgets/gameplay/achievement_toast.dart';
+import 'widgets/gameplay/confetti.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -183,7 +184,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
     if (!mounted) return;
     OverlayEntry? entry;
     entry = OverlayEntry(
-      builder: (_) => _ConfettiOverlay(onDone: () => entry?.remove()),
+      builder: (_) => ConfettiOverlay(onDone: () => entry?.remove()),
     );
     Overlay.of(context).insert(entry);
   }
@@ -1914,102 +1915,6 @@ class PuzzleSelectorScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CONFETTI
-// ─────────────────────────────────────────────────────────────────────────────
-class _ConfettiParticle {
-  double x, y, vx, vy, size, rotation, rotSpeed;
-  Color color;
-  _ConfettiParticle(this.x, this.y, this.vx, this.vy, this.size, this.rotation, this.rotSpeed, this.color);
-}
-
-class _ConfettiOverlay extends StatefulWidget {
-  const _ConfettiOverlay({required this.onDone});
-  final VoidCallback onDone;
-  @override
-  State<_ConfettiOverlay> createState() => _ConfettiOverlayState();
-}
-
-class _ConfettiOverlayState extends State<_ConfettiOverlay>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late List<_ConfettiParticle> _particles;
-  final _rng = math.Random();
-
-  static const _colors = [
-    Color(0xFFFFD465), Color(0xFF7BD957), Color(0xFF5865F2),
-    Color(0xFFFF6B35), Color(0xFF4CAF50), Color(0xFFE91E63),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _particles = List.generate(80, (_) => _ConfettiParticle(
-      _rng.nextDouble(),
-      -0.05 - _rng.nextDouble() * 0.15,
-      (_rng.nextDouble() - 0.5) * 0.006,
-      0.008 + _rng.nextDouble() * 0.012,
-      6 + _rng.nextDouble() * 8,
-      _rng.nextDouble() * math.pi * 2,
-      (_rng.nextDouble() - 0.5) * 0.15,
-      _colors[_rng.nextInt(_colors.length)],
-    ));
-    _ctrl = AnimationController(duration: const Duration(milliseconds: 2800), vsync: this)
-      ..addListener(() => setState(() {
-        for (final p in _particles) {
-          p.x += p.vx;
-          p.y += p.vy;
-          p.vy += 0.0002;
-          p.rotation += p.rotSpeed;
-        }
-        _particles.removeWhere((p) => p.y > 1.15);
-        if (_particles.isEmpty) { _ctrl.stop(); widget.onDone(); }
-      }))
-      ..forward().whenComplete(widget.onDone);
-  }
-
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: CustomPaint(
-          painter: _ConfettiPainter(_particles, size),
-        ),
-      ),
-    );
-  }
-}
-
-class _ConfettiPainter extends CustomPainter {
-  final List<_ConfettiParticle> particles;
-  final Size screen;
-  _ConfettiPainter(this.particles, this.screen);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..style = PaintingStyle.fill;
-    for (final p in particles) {
-      canvas.save();
-      canvas.translate(p.x * size.width, p.y * size.height);
-      canvas.rotate(p.rotation);
-      paint.color = p.color;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.55),
-          const Radius.circular(2)),
-        paint);
-      canvas.restore();
-    }
-  }
-
-  @override
-  bool shouldRepaint(_ConfettiPainter old) => true;
 }
 
 
