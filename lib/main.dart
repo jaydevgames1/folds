@@ -29,6 +29,7 @@ import 'widgets/gameplay/flip_cell.dart';
 import 'widgets/gameplay/fold_complete_animator.dart';
 import 'widgets/gameplay/achievement_toast.dart';
 import 'widgets/gameplay/confetti.dart';
+import 'widgets/recipient_picker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -6338,7 +6339,7 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
               hintText: 'Message', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
             const SizedBox(height: 12),
             DevLabel('RECIPIENT'),
-            _RecipientPicker(initial: 'all', onSelected: (v) => recipient = v),
+            RecipientPicker(initial: 'all', onSelected: (v) => recipient = v),
             const SizedBox(height: 12),
             DevLabel('BACKGROUND'),
             Wrap(spacing: 8, runSpacing: 8, children: bgOptions.entries.map((e) {
@@ -6361,7 +6362,7 @@ class _DevPanelScreenState extends State<DevPanelScreen> {
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
               onPressed: () async {
                 if (titleCtrl.text.trim().isEmpty) { _confirm('Enter a title', error: true); return; }
-                if (!await _isValidRecipient(recipient)) {
+                if (!await isValidRecipient(recipient)) {
                   _confirm('No profile found for "$recipient"', error: true);
                   return;
                 }
@@ -6549,91 +6550,6 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
   }
 }
 
-class _RecipientPicker extends StatefulWidget {
-  final ValueChanged<String> onSelected;
-  final String initial;
-  const _RecipientPicker({required this.onSelected, this.initial = 'all'});
-  @override
-  State<_RecipientPicker> createState() => _RecipientPickerState();
-}
-
-class _RecipientPickerState extends State<_RecipientPicker> {
-  late TextEditingController _ctrl;
-  List<String> _suggestions = [];
-  Timer? _debounce;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.initial);
-  }
-
-  void _onChanged(String query) {
-    widget.onSelected(query.trim().isEmpty ? 'all' : query.trim());
-    _debounce?.cancel();
-    if (query.trim().isEmpty) {
-      setState(() => _suggestions = []);
-      return;
-    }
-    _debounce = Timer(const Duration(milliseconds: 250), () async {
-      try {
-        final data = await Supabase.instance.client
-            .from('profiles')
-            .select('username')
-            .ilike('username', '%${query.trim()}%')
-            .limit(6);
-        final names = List<Map<String, dynamic>>.from(data)
-            .map((e) => e['username'].toString()).toList();
-        final options = <String>['all', '@Moderators', ...names]
-            .where((n) => n.toLowerCase().contains(query.trim().toLowerCase()))
-            .toList();
-        if (mounted) setState(() => _suggestions = options);
-      } catch (_) {}
-    });
-  }
-
-  @override
-  void dispose() { _debounce?.cancel(); _ctrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      TextField(
-        controller: _ctrl,
-        onChanged: _onChanged,
-        decoration: InputDecoration(
-          hintText: '"all", "@Moderators" or a username',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      ),
-      if (_suggestions.isNotEmpty)
-        Container(
-          margin: const EdgeInsets.only(top: 6),
-          decoration: BoxDecoration(color: const Color(0xFFF5F5F5), borderRadius: BorderRadius.circular(10)),
-          child: Column(
-            children: _suggestions.map((s) => ListTile(
-              dense: true,
-              title: Text(s, style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
-              onTap: () {
-                _ctrl.text = s;
-                widget.onSelected(s);
-                setState(() => _suggestions = []);
-                FocusScope.of(context).unfocus();
-              },
-            )).toList(),
-          ),
-        ),
-    ]);
-  }
-}
-
-/// Confirms a typed recipient actually exists before you're allowed to send.
-Future<bool> _isValidRecipient(String recipient) async {
-  if (recipient == 'all' || recipient == '@Moderators') return true;
-  final available = await AppStore.isUsernameAvailable(recipient);
-  return !available; // "available" username == nobody has it == invalid
-}
-
 class ModeratorNotifyScreen extends StatefulWidget {
   const ModeratorNotifyScreen({super.key});
   @override
@@ -6649,7 +6565,7 @@ class _ModeratorNotifyScreenState extends State<ModeratorNotifyScreen> {
   Future<void> _send() async {
     if (_titleCtrl.text.trim().isEmpty) return;
     setState(() => _sending = true);
-    if (!await _isValidRecipient(_recipient)) {
+    if (!await isValidRecipient(_recipient)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No profile found for "$_recipient"')));
         setState(() => _sending = false);
@@ -6696,7 +6612,7 @@ class _ModeratorNotifyScreenState extends State<ModeratorNotifyScreen> {
             Align(alignment: Alignment.centerLeft, child: Text('RECIPIENT',
               style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.black38, letterSpacing: 1))),
             const SizedBox(height: 6),
-            _RecipientPicker(initial: 'all', onSelected: (v) => _recipient = v),
+            RecipientPicker(initial: 'all', onSelected: (v) => _recipient = v),
             const Spacer(),
             GestureDetector(
               onTap: _sending ? null : _send,
