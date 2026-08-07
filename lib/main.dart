@@ -30,6 +30,7 @@ import 'widgets/gameplay/fold_complete_animator.dart';
 import 'widgets/gameplay/achievement_toast.dart';
 import 'widgets/gameplay/confetti.dart';
 import 'widgets/recipient_picker.dart';
+import 'widgets/badge_info_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -5105,62 +5106,9 @@ class _DeveloperXPMultiplierState extends State<DeveloperXPMultiplier> {
 }
 
 
-String _ordinal(int day) {
-  if (day >= 11 && day <= 13) return '${day}th';
-  switch (day % 10) {
-    case 1: return '${day}st';
-    case 2: return '${day}nd';
-    case 3: return '${day}rd';
-    default: return '${day}th';
-  }
-}
 
-String _formatFullDate(DateTime dt) {
-  const months = ['','January','February','March','April','May','June',
-      'July','August','September','October','November','December'];
-  return '${_ordinal(dt.day)} ${months[dt.month]}';
-}
-void _showBadgeInfoDialog(BuildContext context, {required String username, required bool isDev, DateTime? modSince}) {
-  showDialog(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      backgroundColor: Colors.white,
-      title: Row(children: [
-        Icon(isDev ? Icons.code_rounded : Icons.shield_rounded,
-          color: isDev ? const Color(0xFF5865F2) : const Color(0xFFFFD465)),
-        const SizedBox(width: 10),
-        Expanded(child: Text('$username is a ${isDev ? 'Developer' : 'Moderator'}',
-          style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 17))),
-      ]),
-      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(
-          isDev
-            ? 'Developers built Folds from the ground up. There\'s only one.'
-            : 'Moderators are trusted community members hand-picked to help keep Folds friendly and fair.',
-          style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54)),
-        if (!isDev && modSince != null) ...[
-          const SizedBox(height: 10),
-          Text('Mod since ${_formatFullDate(modSince)}',
-            style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black38)),
-        ],
-      ]),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx),
-          child: Text('Close', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45))),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-          onPressed: () {
-            Navigator.pop(ctx);
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const ModsAndDevsScreen()));
-          },
-          child: Text('Learn More', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
-        ),
-      ],
-    ),
-  );
-}
+
+
 
 class ModsAndDevsScreen extends StatelessWidget {
   const ModsAndDevsScreen({super.key});
@@ -5715,7 +5663,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                             DateTime? ms;
                                             final raw = e['mod_since'] as String?;
                                             if (raw != null) { try { ms = DateTime.parse(raw); } catch (_) {} }
-                                            _showBadgeInfoDialog(context,
+                                            showBadgeInfoDialog(context,
                                               username: username,
                                               isDev: (e['is_dev_profile'] as bool?) ?? false,
                                               modSince: ms);
@@ -5968,7 +5916,7 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
                           if (isDev) ...[
                             const SizedBox(width: 8),
                             GestureDetector(
-                              onTap: () => _showBadgeInfoDialog(context, username: username, isDev: true),
+                              onTap: () => showBadgeInfoDialog(context, username: username, isDev: true),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
@@ -5980,7 +5928,7 @@ class _PublicProfileSheetState extends State<_PublicProfileSheet> {
                           ] else if (isMod) ...[
                             const SizedBox(width: 8),
                             GestureDetector(
-                              onTap: () => _showBadgeInfoDialog(context, username: username, isDev: false, modSince: modSince),
+                              onTap: () => showBadgeInfoDialog(context, username: username, isDev: false, modSince: modSince),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
