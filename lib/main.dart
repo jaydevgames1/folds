@@ -73,49 +73,6 @@ Future<void> launchCustomUrl(String url) async {
   }
 }
 
-
-
-class _EnvelopeFrontPainter extends CustomPainter {
-  final double flapProgress;
-  const _EnvelopeFrontPainter({required this.flapProgress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFD0D0D0)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
-
-    // Bottom triangle lines (V shape from corners to centre bottom)
-    final path = Path()
-      ..moveTo(0, size.height)
-      ..lineTo(size.width / 2, size.height * 0.55)
-      ..lineTo(size.width, size.height);
-    canvas.drawPath(path, paint);
-
-    // Side lines
-    canvas.drawLine(Offset(0, 0), Offset(size.width / 2, size.height * 0.45), paint);
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width / 2, size.height * 0.45), paint);
-
-    // Flap (animates closed)
-    if (flapProgress > 0) {
-      final flapPaint = Paint()
-        ..color = const Color(0xFFDDDDDD)
-        ..style = PaintingStyle.fill;
-      final flapPath = Path()
-        ..moveTo(0, 0)
-        ..lineTo(size.width, 0)
-        ..lineTo(size.width / 2, size.height * 0.45 * flapProgress)
-        ..close();
-      canvas.drawPath(flapPath, flapPaint);
-      canvas.drawPath(flapPath, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_EnvelopeFrontPainter old) => old.flapProgress != flapProgress;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // CREDITS SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
@@ -339,200 +296,14 @@ class _SocialCardState extends State<_SocialCard> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PROFILE SCREEN
-// ─────────────────────────────────────────────────────────────────────────────
-class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+class ProfileTab extends StatefulWidget {
+  const ProfileTab({super.key});
+
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  State<ProfileTab> createState() => ProfileTabState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
-  int _tab = 0;
-  int _unreadCount = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUnreadCount();
-  }
-
-  Future<void> _loadUnreadCount() async {
-    try {
-      final username = AppStore.displayUsername;
-      final isMod = AppStore.isModerator;
-      final filters = ['recipient.eq.all', 'recipient.eq.$username'];
-      if (isMod) filters.add('recipient.eq.@Moderators');
-      dynamic query = Supabase.instance.client
-          .from('notifications')
-          .select('id')
-          .or(filters.join(','));
-      final lastSeen = AppStore.lastReceiptsSeen;
-      if (lastSeen != null) {
-        query = query.gt('created_at', lastSeen.toIso8601String());
-      }
-      final data = await query;
-      if (mounted) setState(() => _unreadCount = (data as List).length);
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: 40, height: 40,
-                      decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
-                      child: Center(
-                        child: Transform.rotate(
-                          angle: 3.1416 / 4,
-                          child: Container(
-                            width: 14, height: 14,
-                            decoration: const BoxDecoration(
-                              border: Border(
-                                left: BorderSide(color: Colors.black, width: 2.5),
-                                bottom: BorderSide(color: Colors.black, width: 2.5),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ProfileTabBar(
-                      selected: _tab,
-                      onChanged: (i) => setState(() => _tab = i),
-                    ),
-                  ),
-                  
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  if (AppStore.isDevProfile)
-                    GestureDetector(
-                      onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const DevPanelScreen())),
-                      child: Container(
-                        width: 40, height: 40,
-                        decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
-                        child: const Icon(Icons.build_rounded, color: Color(0xFF2C2C2C), size: 18),
-                      ),
-                    )
-                  else
-                    const SizedBox(width: 40, height: 40),
-                  GestureDetector(
-                    onTap: () async {
-                      await Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptsScreen()));
-                      _loadUnreadCount();
-                    },
-                    child: Stack(clipBehavior: Clip.none, children: [
-                      Container(
-                        width: 40, height: 40,
-                        decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
-                        child: const Icon(Icons.notifications_rounded, color: Color(0xFF2C2C2C), size: 20),
-                      ),
-                      if (_unreadCount > 0)
-                        Positioned(
-                          top: -4, right: -4,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                            child: Center(child: Text(_unreadCount > 99 ? '99+' : '$_unreadCount',
-                              style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white))),
-                          ),
-                        ),
-                    ]),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: _tab == 0
-                      ? const _ProfileTab(key: ValueKey('profile'))
-                      : _tab == 1
-                          ? const _StatsTab(key: ValueKey('stats'))
-                          : const _AchievementsTab(key: ValueKey('achievements')),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ProfileTabBar extends StatelessWidget {
-  final int selected;
-  final ValueChanged<int> onChanged;
-  const _ProfileTabBar({required this.selected, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    const labels = ['PROFILE', 'STATS', 'ACHIEVEMENTS'];
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFEFEF),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: List.generate(labels.length, (i) {
-          final isSelected = i == selected;
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => onChanged(i),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFFD6D6D6) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Center(
-                  child: Text(labels[i],
-                    style: GoogleFonts.dmSans(
-                      fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                      color: isSelected ? Colors.black : Colors.black38,
-                      letterSpacing: 0.5,
-                    )),
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-}
-
-class _ProfileTab extends StatefulWidget {
-  const _ProfileTab({super.key});
-
-  @override
-  State<_ProfileTab> createState() => _ProfileTabState();
-}
-
-class _ProfileTabState extends State<_ProfileTab> {
+class ProfileTabState extends State<ProfileTab> {
   File? _avatarImage;
   String? _avatarUrl;
 
@@ -992,8 +763,8 @@ class _ProfileTabState extends State<_ProfileTab> {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATS & ACHIEVEMENTS UI
 // ─────────────────────────────────────────────────────────────────────────────
-class _StatsTab extends StatelessWidget {
-  const _StatsTab({super.key});
+class StatsTab extends StatelessWidget {
+  const StatsTab({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -1116,8 +887,8 @@ class _StatRowItem extends StatelessWidget {
   }
 }
 
-class _AchievementsTab extends StatelessWidget {
-  const _AchievementsTab({super.key});
+class AchievementsTab extends StatelessWidget {
+  const AchievementsTab({super.key});
 
   static const _categories = [
     ('GETTING STARTED', ['first_fold', 'folding_frenzy']),
