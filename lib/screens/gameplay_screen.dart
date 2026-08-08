@@ -27,6 +27,7 @@ import 'package:folds/screens/store/store_screen.dart';
 import 'package:folds/screens/settings/settings_screen.dart';
 import 'package:folds/screens/profile/profile_screen.dart';
 import 'package:folds/screens/social/credits_screen.dart';
+import 'package:folds/screens/social/socials_screen.dart';
 
 
 
