@@ -21,6 +21,8 @@ import 'package:folds/widgets/gameplay/flip_cell.dart';
 import 'package:folds/widgets/gameplay/fold_complete_animator.dart';
 import 'package:folds/widgets/gameplay/achievement_toast.dart';
 import 'package:folds/widgets/gameplay/confetti.dart';
+import 'package:folds/screens/puzzles/pack_cards.dart';
+import 'package:folds/screens/puzzles/puzzles_menu_screen.dart';
 
 
 
