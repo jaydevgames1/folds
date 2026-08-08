@@ -5,6 +5,7 @@ import 'package:folds/screens/gameplay_screen.dart';
 import 'package:folds/main.dart';
 import 'pack_cards.dart';
 import 'package:folds/widgets/shared/buttons.dart';
+import 'puzzle_selector_screen.dart';
 
 
 class PilotPackDetailScreen extends StatelessWidget {

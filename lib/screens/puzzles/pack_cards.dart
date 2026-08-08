@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:folds/state/app_store.dart';
-import 'package:folds/main.dart';
+import 'puzzle_selector_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUZZLE SIZE CARD (used by PilotPackDetailScreen)
