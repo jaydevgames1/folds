@@ -10,6 +10,7 @@ import 'package:folds/painters/icon_painters.dart';
 import 'package:flutter/services.dart';
 import 'package:folds/screens/gameplay_screen.dart';
 import 'package:folds/widgets/shared/misc.dart';
+import 'public_profile_sheet.dart';
 
 
 class ProfileTab extends StatefulWidget {
