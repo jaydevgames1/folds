@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:folds/screens/gameplay_screen.dart';
 import 'package:folds/widgets/shared/misc.dart';
 import 'public_profile_sheet.dart';
+import 'account_management_screen.dart';
 
 
 class ProfileTab extends StatefulWidget {
