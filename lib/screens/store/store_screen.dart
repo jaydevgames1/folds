@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:folds/widgets/shared/folds_top_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/painters/store_shape_painters.dart';
-import 'package:folds/main.dart';
+import 'package:folds/screens/redeem_dialog.dart';
 
 class StoreScreen extends StatelessWidget {
   const StoreScreen({super.key});
