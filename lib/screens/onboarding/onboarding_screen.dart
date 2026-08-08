@@ -4,6 +4,7 @@ import 'package:folds/main.dart';
 import 'package:folds/core/constants.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/screens/onboarding/onboarding_pages.dart';
+import 'tutorial_pages.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ONBOARDING
