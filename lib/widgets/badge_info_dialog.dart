@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:folds/main.dart';
+import 'package:folds/screens/moderation/mods_and_devs_screen.dart';
 
 void showBadgeInfoDialog(BuildContext context, {required String username, required bool isDev, DateTime? modSince}) {
   showDialog(
