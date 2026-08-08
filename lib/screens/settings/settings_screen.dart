@@ -11,6 +11,7 @@ import 'package:folds/state/app_settings.dart';
 import 'package:folds/services/audio_service.dart';
 import 'package:folds/widgets/shared/misc.dart';
 import 'package:folds/screens/onboarding/onboarding_screen.dart';
+import 'package:folds/screens/settings/dev_screen.dart';
 
 
 class SettingsScreen extends StatefulWidget {
