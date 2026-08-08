@@ -4,6 +4,7 @@ import 'package:folds/state/app_store.dart';
 import 'package:folds/main.dart';
 import 'package:folds/screens/settings/dev_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'profile_tab.dart';
 
 
 class ProfileScreen extends StatefulWidget {
