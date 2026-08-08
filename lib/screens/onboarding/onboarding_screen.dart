@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:folds/main.dart';
 import 'package:folds/core/constants.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/screens/onboarding/onboarding_pages.dart';
 import 'tutorial_pages.dart';
+import 'package:folds/screens/gameplay_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ONBOARDING
