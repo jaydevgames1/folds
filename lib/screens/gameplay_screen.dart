@@ -24,6 +24,7 @@ import 'package:folds/widgets/gameplay/confetti.dart';
 import 'package:folds/screens/puzzles/pack_cards.dart';
 import 'package:folds/screens/puzzles/puzzles_menu_screen.dart';
 import 'package:folds/screens/store/store_screen.dart';
+import 'package:folds/screens/settings/settings_screen.dart';
 
 
 
