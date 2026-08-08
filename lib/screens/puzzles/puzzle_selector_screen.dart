@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/widgets/shared/folds_top_bar.dart';
 import 'package:folds/screens/gameplay_screen.dart';
-import 'package:folds/main.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/widgets/shared/buttons.dart';
+import 'package:folds/screens/store/payment_sheet.dart';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
