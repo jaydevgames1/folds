@@ -13,6 +13,7 @@ import 'package:folds/widgets/shared/misc.dart';
 import 'package:folds/screens/onboarding/onboarding_screen.dart';
 import 'package:folds/screens/settings/dev_screen.dart';
 import 'texture_packs_screen.dart';
+import 'package:folds/screens/social/credits_screen.dart';
 
 
 class SettingsScreen extends StatefulWidget {
