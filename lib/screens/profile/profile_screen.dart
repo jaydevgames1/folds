@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/state/app_store.dart';
-import 'package:folds/main.dart';
 import 'package:folds/screens/settings/dev_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'profile_tab.dart';
 import 'stats_achievements_tabs.dart';
+import 'receipts_screen.dart';
 
 
 class ProfileScreen extends StatefulWidget {
