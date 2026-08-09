@@ -1,17 +1,20 @@
-# folds
+# Folds
 
-A new Flutter project.
+A unique symmetrical puzzle that'll leave you in Folds.
 
-## Getting Started
+## About the Project
 
-This project is a starting point for a Flutter application.
+Folds is the very first project of JayDev Games, an indie dev studio.
 
-A few resources to get you started if this is your first Flutter project:
+You can get to know about Folds and more by visiting:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- [JayDev Games Website](https://jaydev.games)
+- [Folds Website](https://folds.jaydev.games)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Other Notes
+
+If you wish to clone this project for any non-malicious reason please change any import of form
+
+import package:folds/core/constants.dart
+to
+import package:folds/core/constants.example.dart

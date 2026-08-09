@@ -1,11 +1,5 @@
 -e \n\n// ===== FILE: lib/core/constants.dart =====
-const String kDevPassword = 'ilovefoldy';
-const String kModPassword = 'foldsmoderator245!';
-final DateTime kFoldsLaunchDate = DateTime(2026, 11, 1);
-int foldsDayNumberFor(DateTime date) {
-  final clean = DateTime(date.year, date.month, date.day);
-  final diff = clean.difference(kFoldsLaunchDate).inDays;
-  return diff >= 0 ? diff + 1 : diff;
+
 }-e \n\n// ===== FILE: lib/painters/store_shape_painters.dart =====
 import 'package:flutter/material.dart';
 import 'dart:math';
