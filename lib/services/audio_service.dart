@@ -1,5 +1,6 @@
 import 'package:folds/state/app_settings.dart';
 import 'package:audioplayers/audioplayers.dart'; 
+import 'package:folds/state/app_store.dart';
 
 
 class AudioService {
@@ -8,13 +9,15 @@ class AudioService {
   static bool _initialized = false;
 
   static Future<void> init() async {
-    if (_initialized) return;
-    _initialized = true;
-    await _music.setReleaseMode(ReleaseMode.loop);
-    await _music.setVolume(AppSettings.musicVolume);
-    await _sfx.setVolume(AppSettings.sfxVolume);
-  }
-
+  if (_initialized) return;
+  _initialized = true;
+  AppSettings.sfxVolume = AppStore.sfxVolume;
+  AppSettings.musicVolume = AppStore.musicVolume;
+  await _music.setReleaseMode(ReleaseMode.loop);
+  await _music.setVolume(AppSettings.musicVolume);
+  await _sfx.setVolume(AppSettings.sfxVolume);
+}
+  
   // static Future<void> startMusic() async {
   //  if (!AppSettings.musicEnabled) return;
   //  await _music.play(AssetSource('sounds/bgm.mp3'));
@@ -34,6 +37,7 @@ class AudioService {
     await p.play(AssetSource('sounds/flip.mp3'));
     p.onPlayerComplete.listen((_) => p.dispose());
   }
+  
 
   static Future<void> solve() async {
     if (!AppSettings.sfxEnabled) return;
@@ -41,12 +45,14 @@ class AudioService {
   }
 
   static void setMusicVolume(double v) {
-    AppSettings.musicVolume = v;
-    _music.setVolume(v);
-  }
+  AppSettings.musicVolume = v;
+  AppStore.musicVolume = v;
+  _music.setVolume(v);
+}
 
-  static void setSfxVolume(double v) {
-    AppSettings.sfxVolume = v;
-    _sfx.setVolume(v);
-  }
+static void setSfxVolume(double v) {
+  AppSettings.sfxVolume = v;
+  AppStore.sfxVolume = v;
+  _sfx.setVolume(v);
+}
 }

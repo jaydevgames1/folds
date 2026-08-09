@@ -7,6 +7,7 @@ import 'state/app_store.dart';
 import 'services/audio_service.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/gameplay_screen.dart';
+import 'screens/splash/startup_splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,16 +25,42 @@ void main() async {
   runApp(const FoldsApp());
 }
 
-class FoldsApp extends StatelessWidget {
+class FoldsApp extends StatefulWidget {
   const FoldsApp({super.key});
+  @override
+  State<FoldsApp> createState() => FoldsAppState();
+}
+
+class FoldsAppState extends State<FoldsApp> with WidgetsBindingObserver {
+  DateTime? _backgroundedAt;
+  static const _threshold = Duration(minutes: 3);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.paused) _backgroundedAt = DateTime.now();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final home = AppStore.hasSeenOnboarding ? const GameplayScreen() : const OnboardingScreen();
+    final showSplash = _backgroundedAt == null || DateTime.now().difference(_backgroundedAt!) > _threshold;
     return MaterialApp(
       title: 'Folds',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(),
-      home: AppStore.hasSeenOnboarding ? const GameplayScreen() : const OnboardingScreen(),
+      home: showSplash ? StartupSplashScreen(next: home) : home,
     );
   }
 }

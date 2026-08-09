@@ -8,4 +8,5 @@ class AppSettings {
   static double musicVolume = 0.4;
   static bool sfxEnabled = true;
   static double sfxVolume = 0.55;
+  
 }

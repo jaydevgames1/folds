@@ -29,7 +29,7 @@ import 'package:folds/screens/profile/profile_screen.dart';
 import 'package:folds/screens/social/credits_screen.dart';
 import 'package:folds/screens/social/socials_screen.dart';
 import 'leaderboard_screen.dart';
-
+import 'package:folds/widgets/gameplay/game_over_crack.dart';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,7 +65,11 @@ class GameplayScreenState extends State<GameplayScreen> {
   bool _notFound = false;
   bool _solved = false;
   bool _skipAnimation = false;
-  
+  bool _gameOver = false;
+  bool _hideXPOnComplete = false;
+  Map<String, dynamic>? _lastResponse; // cache so Retry never needs a network round-trip
+  String _requestedId = 'p1'; // what was actually asked for — used by the Not Found screen's Retry
+
   List<List<int>> _linkGroups = []; // each group: list of cell indices that flip together
   Map<int, String> _linkShapeByIndex = {}; // index -> shape name, for rendering the badge
 
@@ -78,6 +82,7 @@ class GameplayScreenState extends State<GameplayScreen> {
     _startTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.initialPuzzleId != null) {
+        _requestedId = widget.initialPuzzleId!;
         _loadPuzzle(widget.initialPuzzleId!);
         return;
       }
@@ -97,6 +102,7 @@ class GameplayScreenState extends State<GameplayScreen> {
               .eq('id', dailyId)
               .maybeSingle();
           if (exists != null) {
+            _requestedId = dailyId;
             _loadPuzzle(dailyId);
           } else {
             // Today's puzzle not uploaded yet — load most recent available daily
@@ -107,9 +113,11 @@ class GameplayScreenState extends State<GameplayScreen> {
                 .order('created_at', ascending: false)
                 .limit(1)
                 .maybeSingle();
-            _loadPuzzle(fallback?['id'] ?? 'p1');
+            _requestedId = fallback?['id'] ?? 'p1';
+            _loadPuzzle(_requestedId);
           }
         } catch (e) {
+          _requestedId = 'p1';
           _loadPuzzle('p1');
         }
       }
@@ -195,11 +203,19 @@ class GameplayScreenState extends State<GameplayScreen> {
     setState(() => _timeDisplay = AppSettings.enableMs ? '00:00.00' : '00:00');
   }
 
-  Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
+Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
+    // Retrying the SAME puzzle we already have — reset instantly, no network
+    // round-trip and no window where a stale, already-failed board is tappable.
+    if (forcePlay && _lastResponse != null && _id == id) {
+      _applyPuzzleData(_lastResponse!, resetOnly: true);
+      return;
+    }
     setState(() {
-      _loading = true;
+      if (!forcePlay) {
+        _loading = true;
+        _loaded = false; // hide the grid until fresh data lands
+      }
       _notFound = false;
-      _loaded = false;
     });
     try {
       final offlineHit = AppStore.getOfflinePuzzle(id);
@@ -208,62 +224,8 @@ class GameplayScreenState extends State<GameplayScreen> {
           .select()
           .eq('id', id)
           .single();
-      final rawCells = (response['cells'] as List).map((e) => e == 1).toList();
-      // Determine grid size from cell count
-      final cellCount = rawCells.length;
-      final int gridRows = (response['rows'] as int?) ?? (sqrt(cellCount.toDouble()).toInt());
-      final int gridCols = (response['cols'] as int?) ?? (sqrt(cellCount.toDouble()).toInt());
-      final gridSize = gridRows;
-      final linksRaw = (response['links'] as List?) ?? [];
-      final groups = <List<int>>[];
-      final shapeMap = <int, String>{};
-      for (final link in linksRaw) {
-        final members = List<int>.from(link['members']);
-        final shape = link['shape'] as String;
-        groups.add(members);
-        for (final m in members) {
-          shapeMap[m] = shape;
-        }
-      }
-      // Format Daily Titles to include #No.
-      String rawId = response['id'].toString();
-      String displayTitle = response['title'];
-      if (rawId.startsWith('d')) {
-        String dayNumber = rawId.replaceAll(RegExp(r'[^0-9]'), '');
-        displayTitle = '#$dayNumber $displayTitle';
-      }
-
-      if (gridCols > gridRows) {
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]);
-      } else {
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.portraitUp,
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]);
-      }
-
-      setState(() {
-        _cells = rawCells;
-        _gridSize = gridSize;
-        _gridRows = gridRows;
-        _gridCols = gridCols;
-        _title = displayTitle;
-        _author = response['author'];
-        _difficulty = response['difficulty'] as int;
-        _id = response['id'].toString();
-        _par = (response['par'] ?? 5) as int;
-        _moves = 0;
-        _loaded = true;
-        _loading = false;
-        _notFound = false;
-        _solved = false;
-        _linkGroups = groups; 
-        _linkShapeByIndex = shapeMap;
-      });
+      _lastResponse = response;
+      await _applyPuzzleData(response);
     } catch (e) {
       debugPrint('❌ Supabase error: $e');
       setState(() {
@@ -272,6 +234,58 @@ class GameplayScreenState extends State<GameplayScreen> {
         _loaded = false;
       });
     }
+  }
+
+  Future<void> _applyPuzzleData(Map<String, dynamic> response, {bool resetOnly = false}) async {
+    final rawCells = (response['cells'] as List).map((e) => e == 1).toList();
+    final cellCount = rawCells.length;
+    final gridRows = (response['rows'] as int?) ?? sqrt(cellCount.toDouble()).toInt();
+    final gridCols = (response['cols'] as int?) ?? sqrt(cellCount.toDouble()).toInt();
+    final linksRaw = (response['links'] as List?) ?? [];
+    final groups = <List<int>>[];
+    final shapeMap = <int, String>{};
+    for (final link in linksRaw) {
+      final members = List<int>.from(link['members']);
+      groups.add(members);
+      for (final m in members) shapeMap[m] = link['shape'] as String;
+    }
+    String rawId = response['id'].toString();
+    String displayTitle = response['title'];
+    if (rawId.startsWith('d')) {
+      displayTitle = '#${rawId.replaceAll(RegExp(r'[^0-9]'), '')} $displayTitle';
+    }
+
+    if (!resetOnly) {
+      if (gridCols > gridRows) {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
+        ]);
+      } else {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
+        ]);
+      }
+    }
+
+    setState(() {
+      _cells = List<bool>.from(rawCells); // fresh copy every time — never re-uses the failed board
+      _gridSize = gridRows;
+      _gridRows = gridRows;
+      _gridCols = gridCols;
+      _title = displayTitle;
+      _author = response['author'];
+      _difficulty = response['difficulty'] as int;
+      _id = rawId;
+      _par = (response['par'] ?? 5) as int;
+      _moves = 0;
+      _loaded = true;
+      _loading = false;
+      _notFound = false;
+      _solved = false;
+      _gameOver = false; // ← this line is the actual fix for "double board"
+      _linkGroups = groups;
+      _linkShapeByIndex = shapeMap;
+    });
   }
 
   bool _isSymmetrical() {
@@ -361,6 +375,14 @@ class GameplayScreenState extends State<GameplayScreen> {
       else if (_moves == _par) HapticFeedback.mediumImpact();
     }
 
+    if (!_isSymmetrical() && _moves > _par * 2) {
+      _stopwatch.stop();
+      _timer.cancel();
+      setState(() => _gameOver = true);
+      return;
+    }
+    
+
     if (_isSymmetrical()) {
       _stopwatch.stop();
       _timer.cancel();
@@ -406,9 +428,11 @@ class GameplayScreenState extends State<GameplayScreen> {
       }
 
       final alreadyCompleted = AppStore.isCompleted(_id);
+      int awardedXP = 0;
       if (!alreadyCompleted) {
         if (_moves > _par * 2) AppStore.markFailed(_id);
-        AppStore.totalXP = AppStore.totalXP + xp;
+        awardedXP = xp;
+        AppStore.totalXP = AppStore.totalXP + awardedXP;
       }
       if (_moves <= _par) AppStore.markParCompleted(_id);
       AppStore.markCompleted(_id);
@@ -436,11 +460,12 @@ class GameplayScreenState extends State<GameplayScreen> {
       } else if (_id.startsWith('r')) {
         AppStore.recentPack = 'RECTANGLE';
       }
+      _hideXPOnComplete = alreadyCompleted;
 
       if (_moves <= _par) _showConfetti();
       setState(() {
         _solved = true;
-        _earnedXP = xp;
+        _earnedXP = awardedXP;
       });
     }
   }
@@ -500,9 +525,13 @@ class GameplayScreenState extends State<GameplayScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    Text(_puzzleDisplayTitle,
-                      style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black),
-                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(_puzzleDisplayTitle,
+                        style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black),
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ),
                     Text('by $_author',
                       style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w400, color: Colors.black54)),
                     const Spacer(),
@@ -565,9 +594,9 @@ class GameplayScreenState extends State<GameplayScreen> {
                         final nC = _gridCols;
                         final maxDim = max(nR, nC);
                         final gap = maxDim <= 4 ? 8.0 : maxDim <= 6 ? 6.0 : 4.0;
-                        final cellSizeW = (constraints.maxWidth - gap * (nC - 1)) / nC;
-                        final cellSizeH = (constraints.maxHeight - gap * (nR - 1)) / nR;
-                        final cellSize = min(cellSizeW, cellSizeH);
+                        final cellSizeW = ((constraints.maxWidth - gap * (nC - 1)) / nC).clamp(1.0, double.infinity);
+final cellSizeH = ((constraints.maxHeight - gap * (nR - 1)) / nR).clamp(1.0, double.infinity);
+final cellSize = min(cellSizeW, cellSizeH);
                         return Column(
                           mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -605,30 +634,49 @@ class GameplayScreenState extends State<GameplayScreen> {
         ),
         // Pause overlay
         if (_paused)
-          Positioned.fill(
-            child: Container(
-              color: Colors.white,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('PAUSED', style: GoogleFonts.dmSans(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 4)),
-                  const SizedBox(height: 24),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() => _paused = false);
-                      _stopwatch.start();
-                      _startTimer();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                      decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
-                      child: Text('RESUME', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1)),
-                    ),
-                  ),
-                ],
+  Positioned.fill(
+    child: Container(
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('PAUSED', style: GoogleFonts.dmSans(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 4)),
+            const SizedBox(height: 6),
+            Text(_puzzleDisplayTitle, style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black38, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: () { setState(() => _paused = false); _stopwatch.start(); _startTimer(); },
+              child: Container(
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
+                child: Center(child: Text('RESUME', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1))),
               ),
             ),
-          ),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () { setState(() => _paused = false); _loadPuzzle(_id, forcePlay: true); _resetTimer(); },
+              child: Container(
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
+                child: Center(child: Text('Restart Puzzle', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black))),
+              ),
+            ),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () { _timer.cancel(); _stopwatch.stop(); pushFade(context, const PuzzlesMenuScreen()); },
+              child: Container(
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
+                child: Center(child: Text('Exit to Puzzles', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black54))),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  ),
       ],
     );
   }
@@ -700,18 +748,31 @@ class GameplayScreenState extends State<GameplayScreen> {
                   textAlign: TextAlign.center,
                   style: GoogleFonts.dmSans(fontSize: 15, color: Colors.black38)),
                 const SizedBox(height: 32),
-                GestureDetector(
-                  onTap: () => _loadPuzzle('p1'),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2C2C2C),
-                      borderRadius: BorderRadius.circular(14),
+                Row(children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => launchCustomUrl('https://folds.jaydev.games/support'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
+                        child: Center(child: Text('Learn More',
+                          style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black54))),
+                      ),
                     ),
-                    child: Text('Back to Home',
-                      style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _loadPuzzle(_requestedId),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
+                        child: Center(child: Text('Retry',
+                          style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white))),
+                      ),
+                    ),
+                  ),
+                ]),
               ],
             ),
           ),
@@ -737,10 +798,15 @@ class GameplayScreenState extends State<GameplayScreen> {
 
             // ── Grid & Localized Pause Overlay ───────────────────
             if (_loaded && _solved)
-              SingleChildScrollView(
+            Positioned(
+              top: 96, left: 0, right: 0, bottom: 0,
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
                 key: ValueKey('complete_scroll_$_id'),
                 child: FoldCompleteAnimator(
                   key: ValueKey('complete_$_id'),
+                  maxWidth: constraints.maxWidth,
+                  maxHeight: constraints.maxHeight,
                   puzzleId: _id,
                   puzzleTitle: _puzzleDisplayTitle,
                   puzzleShareNumber: _puzzleShareNumber,
@@ -749,36 +815,30 @@ class GameplayScreenState extends State<GameplayScreen> {
                   moves: _moves,
                   par: _par,
                   earnedXP: _earnedXP,
+                  hideXP: _hideXPOnComplete,
                   cells: _cells,
                   skipAnimation: _skipAnimation,
                   isHoliday: FoldsTheme.isHolidayPuzzle(_id),
                   gridRows: _gridRows,
                   gridCols: _gridCols,
+                  
                   onRetry: () {
-                    setState(() {
-                      _solved = false;
-                      _skipAnimation = false;
-                    });
+                    setState(() { _solved = false; _skipAnimation = false; });
                     _loadPuzzle(_id, forcePlay: true);
                     _resetTimer();
                   },
                   onNext: _nextPuzzleId != null ? () {
-                    setState(() {
-                      _solved = false;
-                      _skipAnimation = false;
-                      _moves = 0;
-                      _earnedXP = 0;
-                      _loaded = false; // prevents old grid flashing for one frame
-                    });
+                    final next = _nextPuzzleId!;
+                    setState(() { _solved = false; _skipAnimation = false; });
+                    _loadPuzzle(next);
                     _resetTimer();
-                    _loadPuzzle(_nextPuzzleId!);
                   } : null,
                 ),
-              ),
-
-            if (_loaded && !_solved && _gridCols > _gridRows)
+              )),
+            ),
+            if (_loaded && !_solved && !_gameOver && _gridCols > _gridRows)
               _buildLandscapeLayout(context),
-            if (_loaded && !_solved && _gridCols <= _gridRows) Center(
+            if (_loaded && !_solved && !_gameOver && _gridCols <= _gridRows) Center(
   child: Stack(
     alignment: Alignment.center,
     children: [
@@ -792,9 +852,9 @@ class GameplayScreenState extends State<GameplayScreen> {
             final nC = _gridCols;
             final maxDim = max(nR, nC);
             final gap = maxDim <= 4 ? 8.0 : maxDim <= 6 ? 6.0 : 4.0;
-            final cellSizeW = (constraints.maxWidth - gap * (nC - 1)) / nC;
+            final cellSizeW = ((constraints.maxWidth - gap * (nC - 1)) / nC).clamp(1.0, double.infinity);
             final cellSizeH = constraints.maxHeight > 0
-                ? (constraints.maxHeight - gap * (nR - 1)) / nR
+                ? ((constraints.maxHeight - gap * (nR - 1)) / nR).clamp(1.0, double.infinity)
                 : double.infinity;
             final cellSize = min(cellSizeW, cellSizeH);
 
@@ -863,8 +923,8 @@ class GameplayScreenState extends State<GameplayScreen> {
                       ),
                     ),
                   ),
-
-                  // Localized Whiteout Pause Overlay
+                  
+                      // Localized Whiteout Pause Overlay
                   if (_paused)
                     Positioned.fill(
                       child: Container(
@@ -940,11 +1000,32 @@ class GameplayScreenState extends State<GameplayScreen> {
                 ],
                 ),
               ),
-            
+
+            if (_loaded && _gameOver)
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: MediaQuery.of(context).size.height * 0.09, // ~1/12–1/8 of screen
+                      ),
+                      child: GameOverCrack(
+                        cells: _cells,
+                        gridRows: _gridRows,
+                        gridCols: _gridCols,
+                        moves: _moves,
+                        par: _par,
+                        isHoliday: FoldsTheme.isHolidayPuzzle(_id),
+                        onRetry: () {
+                          setState(() => _gameOver = false);
+                          _loadPuzzle(_id, forcePlay: true);
+                          _resetTimer();
+                        },
+                        onExit: () => pushFade(context, const PuzzlesMenuScreen())
+                      ),
+                    ),
+
 
             // ── Top bar (portrait only) ──────────────────────────────────────────
-            if (MediaQuery.of(context).orientation == Orientation.portrait)
-            Positioned(
+            if (_gridCols <= _gridRows && !_gameOver)
+              Positioned(
               top: 0, left: 0, right: 0,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1029,7 +1110,7 @@ class GameplayScreenState extends State<GameplayScreen> {
 
             // ── Moves bar ────────────────────────────────────────
             // ── Moves bar ────────────────────────────────────────
-            if (!_solved && MediaQuery.of(context).orientation == Orientation.portrait) Positioned(
+            if (!_solved && _gridCols <= _gridRows && !_gameOver) Positioned(
               bottom: 24, left: 20, right: 20,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),

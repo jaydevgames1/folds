@@ -55,7 +55,8 @@ flutter:
     - assets/puzzles/
     - assets/404.png
     - assets/foldy.png
-    - assets/winter.png   # background music track
+    - assets/winter.png 
+    - assets/jaydev_mark.png  # background music track
     - assets/sounds/flip.mp3     # tile flip sound
     - assets/sounds/solve.mp3    # puzzle solve sound
   # To add assets to your application, add an assets section, like this:

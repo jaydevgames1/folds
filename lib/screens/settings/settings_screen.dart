@@ -24,26 +24,29 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class SettingsScreenState extends State<SettingsScreen> {
-  int _theme = 0;
   int _versionTapCount = 0;
   DateTime? lastVersionTap;
-  bool _reducedMotion = false;
+
+  // ── All of these now read their real starting value from AppStore,
+  //    and every onChanged below writes straight back to AppStore.
+  int _theme = AppStore.themeMode;
+  bool _reducedMotion = AppStore.reducedMotion;
   bool _showTimer = AppStore.showTimer;
   bool _enableMs = AppStore.enableMs;
   int _movesDisplay = AppStore.movesDisplay;
   TimeOfDay _notifTime = AppStore.notifTime;
   bool _haptic = AppStore.haptic;
-  double _sfx = 0.55;
-  double _trackVolume = 0.4;
+  double _sfx = AppStore.sfxVolume;
+  double _trackVolume = AppStore.musicVolume;
   bool _isPlaying = false;
-  int _frameRate = 0;
-  bool _staticBg = false;
-  bool _dailyNotif = true;
-  bool _newPacksNotif = true;
-  int _handedMode = 0;
-  bool _optOutData = false;
+  int _frameRate = AppStore.frameRateCap;
+  bool _staticBg = AppStore.staticBackgrounds;
+  bool _dailyNotif = AppStore.dailyNotifEnabled;
+  bool _newPacksNotif = AppStore.newPacksNotifEnabled;
+  int _handedMode = AppStore.handedMode;
+  bool _optOutData = AppStore.optOutData;
   bool _justDont = false;
-  
+
   void _showBugReport(BuildContext ctx) {
     final ctrl = TextEditingController();
     showDialog(
@@ -74,7 +77,6 @@ class SettingsScreenState extends State<SettingsScreen> {
             onPressed: () async {
               if (ctrl.text.trim().isEmpty) return;
               Navigator.pop(dialogCtx);
-              // Log to Supabase
               try {
                 await Supabase.instance.client.from('bug_reports').insert({
                   'username': AppStore.displayUsername,
@@ -83,7 +85,6 @@ class SettingsScreenState extends State<SettingsScreen> {
                   'created_at': DateTime.now().toIso8601String(),
                 });
               } catch (_) {}
-              // Grant achievement
               if (!AppStore.isUnlocked('exterminator')) {
                 AppStore.unlockAchievement('exterminator');
               }
@@ -133,13 +134,19 @@ class SettingsScreenState extends State<SettingsScreen> {
                         hint: 'Based off of local time',
                         options: const ['LIGHT', 'DARK', 'AUTO'],
                         selected: _theme,
-                        onChanged: (i) => setState(() => _theme = i),
+                        onChanged: (i) => setState(() {
+                          _theme = i;
+                          AppStore.themeMode = i;
+                        }),
                       ),
                       ToggleRow(
                         title: 'Reduced Motion',
                         subtitle: 'Disables aesthetic animations',
                         value: _reducedMotion,
-                        onChanged: (v) => setState(() => _reducedMotion = v),
+                        onChanged: (v) => setState(() {
+                          _reducedMotion = v;
+                          AppStore.reducedMotion = v;
+                        }),
                       ),
                       OpenRow(
                         title: 'Texture Packs',
@@ -156,7 +163,7 @@ class SettingsScreenState extends State<SettingsScreen> {
                           AppStore.showTimer = v;
                           if (!v) {
                             _enableMs = false;
-                            AppSettings.enableMs = false;
+                            AppStore.enableMs = false;
                           }
                         }),
                       ),
@@ -261,12 +268,18 @@ class SettingsScreenState extends State<SettingsScreen> {
                         subtitle: 'Maximum frame rate. Affects smoothness & feel',
                         options: const ['30 FPS', '60 FPS', '120 FPS'],
                         selected: _frameRate,
-                        onChanged: (i) => setState(() => _frameRate = i),
+                        onChanged: (i) => setState(() {
+                          _frameRate = i;
+                          AppStore.frameRateCap = i;
+                        }),
                       ),
                       ToggleRow(
                         title: 'Static Backgrounds',
                         value: _staticBg,
-                        onChanged: (v) => setState(() => _staticBg = v),
+                        onChanged: (v) => setState(() {
+                          _staticBg = v;
+                          AppStore.staticBackgrounds = v;
+                        }),
                       ),
 
                       SectionHeader('NOTIFICATIONS'),
@@ -274,7 +287,10 @@ class SettingsScreenState extends State<SettingsScreen> {
                         title: 'Daily Fold Notif',
                         subtitle: 'Sends a daily reminder to do your daily Folds!',
                         value: _dailyNotif,
-                        onChanged: (v) => setState(() => _dailyNotif = v),
+                        onChanged: (v) => setState(() {
+                          _dailyNotif = v;
+                          AppStore.dailyNotifEnabled = v;
+                        }),
                       ),
                       if (_dailyNotif)
                         Padding(
@@ -307,7 +323,10 @@ class SettingsScreenState extends State<SettingsScreen> {
                         title: 'New Packs Notif',
                         subtitle: 'Notifies you if any new packs come out!',
                         value: _newPacksNotif,
-                        onChanged: (v) => setState(() => _newPacksNotif = v),
+                        onChanged: (v) => setState(() {
+                          _newPacksNotif = v;
+                          AppStore.newPacksNotifEnabled = v;
+                        }),
                       ),
 
                       SectionHeader('ADVANCED INPUT'),
@@ -316,7 +335,10 @@ class SettingsScreenState extends State<SettingsScreen> {
                         subtitle: 'Flips orientation for landscape puzzles',
                         options: const ['RIGHT', 'LEFT'],
                         selected: _handedMode,
-                        onChanged: (i) => setState(() => _handedMode = i),
+                        onChanged: (i) => setState(() {
+                          _handedMode = i;
+                          AppStore.handedMode = i;
+                        }),
                       ),
 
                       SectionHeader('PRIVACY & SECURITY'),
@@ -324,7 +346,10 @@ class SettingsScreenState extends State<SettingsScreen> {
                         title: 'Opt Out of Data Usage',
                         subtitle: 'Disables using your data for personal & general enhancement',
                         value: _optOutData,
-                        onChanged: (v) => setState(() => _optOutData = v),
+                        onChanged: (v) => setState(() {
+                          _optOutData = v;
+                          AppStore.optOutData = v;
+                        }),
                       ),
                       OpenRow(title: 'ToS and Privacy Policy', onTap: () => launchCustomUrl('https://jaydev.games/privacy')),
 
@@ -390,6 +415,14 @@ class SettingsScreenState extends State<SettingsScreen> {
                               _enableMs = false;
                               _movesDisplay = 0;
                               _notifTime = const TimeOfDay(hour: 8, minute: 0);
+                              _theme = 2;
+                              _reducedMotion = false;
+                              _frameRate = 1;
+                              _staticBg = false;
+                              _dailyNotif = true;
+                              _newPacksNotif = true;
+                              _handedMode = 0;
+                              _optOutData = false;
                             });
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -414,12 +447,11 @@ class SettingsScreenState extends State<SettingsScreen> {
                               content: Text('Tap $_versionTapCount / 7'),
                             ));
                             if (_versionTapCount >= 7) {
-                              // _versionTapCount = 0;
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const DevPanelScreen()));
                             }
                           },
                           child: Container(
-                            color: Colors.transparent, // ensures the whole area is tappable, not just glyph pixels
+                            color: Colors.transparent,
                             padding: const EdgeInsets.all(12),
                             child: Text('version 1.0.0',
                               style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
@@ -450,4 +482,3 @@ class SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
-

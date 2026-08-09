@@ -204,9 +204,15 @@ class ProfileTabState extends State<ProfileTab> {
                   if (isGuest)
                     GestureDetector(
                       onTap: () async {
-                        final success = await Navigator.push(context, MaterialPageRoute(builder: (context) => const AuthScreen()));
-                        if (success == true) setState(() {});
-                      },
+                          final success = await Navigator.push(context, MaterialPageRoute(builder: (context) => const AuthScreen()));
+                          if (success == true) {
+                            await AppStore.downloadCloudProfile();
+                            if (mounted) {
+                              _loadAvatar();
+                              setState(() {});
+                            }
+                          }
+                        },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                         decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),

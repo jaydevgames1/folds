@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:folds/state/app_store.dart';
+import 'package:folds/painters/icon_painters.dart';
+import 'package:folds/widgets/shared/folds_dialog.dart';
+import 'package:folds/screens/gameplay_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
-
   @override
   State<AuthScreen> createState() => AuthScreenState();
 }
@@ -13,68 +15,122 @@ class AuthScreen extends StatefulWidget {
 class AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _usernameController = TextEditingController(); // New Username Field
+  final _usernameController = TextEditingController();
   bool _isLoading = false;
   bool _isSignUp = false;
+  bool _keepProgress = true;
+
+  bool get _wasAnonymous {
+    final u = AppStore.currentUser;
+    return u != null && u.isAnonymous;
+  }
 
   Future<void> _authenticate() async {
     setState(() => _isLoading = true);
     try {
+      final anon = AppStore.currentUser;
+      final wasAnonymous = anon != null && anon.isAnonymous;
+
       if (_isSignUp) {
-          if (_usernameController.text.trim().isEmpty) {
-            throw Exception('Please choose a username.');
-          }
-          final available = await AppStore.isUsernameAvailable(_usernameController.text.trim());
-          if (!available) {
-            throw Exception('That username is already taken. Please choose another.');
-          }
-        final signUpResponse = await Supabase.instance.client.auth.signUp(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-          data: {'username': _usernameController.text.trim()},
-        );
-        if (signUpResponse.user != null) {
+        if (_usernameController.text.trim().isEmpty) {
+          throw Exception('Please choose a username.');
+        }
+        final available = await AppStore.isUsernameAvailable(_usernameController.text.trim());
+        if (!available) {
+          throw Exception('That username is already taken. Please choose another.');
+        }
+
+        if (wasAnonymous && _keepProgress) {
+          // Upgrade the existing anonymous user in place — same id, same
+          // profile row, same XP. Nothing to re-download or restart.
+          await Supabase.instance.client.auth.updateUser(UserAttributes(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+            data: {'username': _usernameController.text.trim()},
+          ));
+          final uid = anon.id;
           final d = DateTime.now();
           const months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
               'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
           final joinStr = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
-          // Change from AppStore._p?.setString(...) to:
-          await AppStore.setLocalJoinDate(joinStr);
-          await AppStore.setLocalUsername(_usernameController.text.trim());
-
-          // Auto sign-in immediately after creating account
+          await Supabase.instance.client.from('profiles').update({
+            'username': _usernameController.text.trim(),
+            'join_date': joinStr,
+          }).eq('id', uid);
+        } else {
+          // Fresh account, "Create Account & Sign In" in one step.
+          await Supabase.instance.client.auth.signUp(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+            data: {'username': _usernameController.text.trim()},
+          );
           try {
             await Supabase.instance.client.auth.signInWithPassword(
               email: _emailController.text.trim(),
               password: _passwordController.text,
             );
-            // Explicitly push the real join date to Supabase NOW — don't rely
-            // on an incidental future sync to carry it up.
             final uid = Supabase.instance.client.auth.currentUser?.id;
             if (uid != null) {
+              final d = DateTime.now();
+              const months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
+                  'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+              final joinStr = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
               await Supabase.instance.client.from('profiles').update({
                 'join_date': joinStr,
                 'username': _usernameController.text.trim(),
               }).eq('id', uid);
             }
-            await AppStore.downloadCloudProfile();
           } catch (_) {
-            // Sign-in after signup can fail if email confirmation is required —
-            // the account is still created, they just need to verify first
+            // Email confirmation required — account exists, they'll verify first.
           }
         }
+        await AppStore.downloadCloudProfile();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Welcome to the Fold! You\'re signed in.')));
           Navigator.pop(context, true);
         }
       } else {
+        final input = _emailController.text.trim();
+        final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+
+        // Show the transition screen immediately, before the network calls —
+        // the person should never see their old guest data while this runs.
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
+              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+              transitionDuration: const Duration(milliseconds: 200),
+            ),
+            (route) => false,
+          );
+        }
+
+        // Drop whatever guest/anonymous session is active and forget its data
+        // before pulling down the real account.
+        try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
+        await AppStore.wipeLocalProfileData();
+
         await Supabase.instance.client.auth.signInWithPassword(
-          email: _emailController.text.trim(),
+          email: email,
           password: _passwordController.text,
         );
-        if (mounted) Navigator.pop(context, true);
+        await AppStore.downloadCloudProfile();
+
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => const GameplayScreen(),
+              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+              transitionDuration: const Duration(milliseconds: 350),
+            ),
+            (route) => false,
+          );
+        }
+        return; // transition already navigated away — skip the setState below
       }
+
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
@@ -96,16 +152,15 @@ class AuthScreenState extends State<AuthScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 20),
-              // Fun Graphic Logo Placeholder
               Center(
                 child: Container(
                   width: 100, height: 100,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2C2C2C),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 5))],
+                    color: const Color(0xFFE8E8E8),
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, 6))],
                   ),
-                  child: const Icon(Icons.grid_view_rounded, color: Colors.white, size: 60),
+                  child: ClipOval(child: CustomPaint(painter: HomeIconPainter())),
                 ),
               ),
               const SizedBox(height: 30),
@@ -116,14 +171,14 @@ class AuthScreenState extends State<AuthScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _isSignUp 
-                    ? 'Create an account to save your progress, unlock achievements, and climb the global leaderboards.' 
+                _isSignUp
+                    ? 'Create an account to save your progress, unlock achievements, and climb the global leaderboards.'
                     : 'Sign in to sync your progress and keep folding.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54),
               ),
               const SizedBox(height: 40),
-              
+
               if (_isSignUp) ...[
                 TextField(
                   controller: _usernameController,
@@ -135,12 +190,11 @@ class AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 16),
               ],
-              
+
               TextField(
                 controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
-                  labelText: 'Email',
+                  labelText: _isSignUp ? 'Email' : 'Email or Username',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true, fillColor: const Color(0xFFF5F5F5),
                 ),
@@ -155,17 +209,36 @@ class AuthScreenState extends State<AuthScreen> {
                   filled: true, fillColor: const Color(0xFFF5F5F5),
                 ),
               ),
-              const SizedBox(height: 32),
-              
+
+              if (_isSignUp && _wasAnonymous) ...[
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () => setState(() => _keepProgress = !_keepProgress),
+                  child: Row(children: [
+                    Checkbox(
+                      value: _keepProgress,
+                      activeColor: const Color(0xFF2C2C2C),
+                      onChanged: (v) => setState(() => _keepProgress = v ?? true),
+                    ),
+                    Expanded(
+                      child: Text('Keep my current progress (XP, streak, completed puzzles)',
+                        style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black54)),
+                    ),
+                  ]),
+                ),
+              ],
+
+              const SizedBox(height: 24),
+
               GestureDetector(
                 onTap: _isLoading ? null : _authenticate,
                 child: Container(
                   height: 55,
                   decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
                   child: Center(
-                    child: _isLoading 
+                    child: _isLoading
                         ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : Text(_isSignUp ? 'CREATE ACCOUNT' : 'SIGN IN', style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15, letterSpacing: 1)),
+                        : Text(_isSignUp ? 'CREATE ACCOUNT & SIGN IN' : 'SIGN IN', style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15, letterSpacing: 1)),
                   ),
                 ),
               ),
@@ -184,6 +257,3 @@ class AuthScreenState extends State<AuthScreen> {
     );
   }
 }
-
-
-

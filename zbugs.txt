@@ -1,0 +1,13 @@
+- 'Next' button does nothing
+- Fold complete animator should not fly at all. It should fold in half, turn around 90 degrees, then stamp with par / solved. 
+- The end stats - for example the copy score, share, next, retry, xp labels, etc, should be higher up towards the stamp half-grid
+- Instead of the XP showing +0 XP if the puzzle is already completed, remove it out of the picture entirely. This is if solved already is true
+- Upon exceeding double par and hence the board cracks, make sure the metadata and the pause button disappear and the other stuff - cracked grid, Text, the 2 butons, move down about a twelfth to an eighth of the phone-height.
+- Big bug: Basically, when signing out via the acc management screen, as SOON as that sign out buttons is pressed, the whole thing should go to a new blank screen. I'm pretty sure it might be implemented but this error poppped up in terminal: flutter: Anonymous sign-in failed: AuthApiException(message: Anonymous sign-ins are disabled, statusCode: 422, code: anonymous_provider_disabled)
+- Same thing for signing in. It should immediately load and forget EVERYTHING in the guest account. It doesn't matter if you need to add a quick loading screen saying "Signing Out" or "Signing Back In", it needs to be perfect
+- Replace every instance of an emoji with a flutter google Fonts icon. This includes the end stats ie moves, xp star, etc. make the xp star yellow.
+- Every instance of a default flutter alert should be replaced with a custom Folds popup but not too annoying. no popup, snackbar.
+- Make the splash screen black and make it visible for 5 seconds (only on relaunch) even if everything is ready. People need to see my brand. Also, how to make a moving animation as the brandmark? Not a still png, what could be added? Gif? Mp4? Idk
+- Revamp the leaderboard screen to be more fun. It's too boring. Do whatever you can.
+
+that's all for now. Then suggest some more features for Folds.

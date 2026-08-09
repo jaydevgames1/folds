@@ -7,16 +7,46 @@ import 'package:folds/core/constants.dart';
 
 class AppStore {
   static Future<void> setLocalJoinDate(String date) async {
-  await _p?.setString('joinDate', date);
-}
+    await _p?.setString('joinDate', date);
+  }
 
-static Future<void> setLocalUsername(String name) async {
-  await _p?.setString('username', name);
-}
+  static Future<void> setLocalUsername(String name) async {
+    await _p?.setString('username', name);
+  }
 
   static bool isDeveloperMode = false;
   static SharedPreferences? _p;
-  
+
+  static int get themeMode => _p?.getInt('themeMode') ?? 2;
+  static set themeMode(int v) { _p?.setInt('themeMode', v); syncToCloud({'theme_mode': v}); }
+
+  static bool get reducedMotion => _p?.getBool('reducedMotion') ?? false;
+  static set reducedMotion(bool v) { _p?.setBool('reducedMotion', v); syncToCloud({'reduced_motion': v}); }
+
+  static int get frameRateCap => _p?.getInt('frameRateCap') ?? 1;
+  static set frameRateCap(int v) { _p?.setInt('frameRateCap', v); syncToCloud({'frame_rate_cap': v}); }
+
+  static bool get staticBackgrounds => _p?.getBool('staticBackgrounds') ?? false;
+  static set staticBackgrounds(bool v) { _p?.setBool('staticBackgrounds', v); syncToCloud({'static_backgrounds': v}); }
+
+  static bool get dailyNotifEnabled => _p?.getBool('dailyNotifEnabled') ?? true;
+  static set dailyNotifEnabled(bool v) { _p?.setBool('dailyNotifEnabled', v); syncToCloud({'daily_notif_enabled': v}); }
+
+  static bool get newPacksNotifEnabled => _p?.getBool('newPacksNotifEnabled') ?? true;
+  static set newPacksNotifEnabled(bool v) { _p?.setBool('newPacksNotifEnabled', v); syncToCloud({'new_packs_notif_enabled': v}); }
+
+  static int get handedMode => _p?.getInt('handedMode') ?? 0;
+  static set handedMode(int v) { _p?.setInt('handedMode', v); syncToCloud({'handed_mode': v}); }
+
+  static bool get optOutData => _p?.getBool('optOutData') ?? false;
+  static set optOutData(bool v) { _p?.setBool('optOutData', v); syncToCloud({'opt_out_data': v}); }
+
+  static double get sfxVolume => _p?.getDouble('sfxVolume') ?? 0.55;
+  static set sfxVolume(double v) => _p?.setDouble('sfxVolume', v);
+
+  static double get musicVolume => _p?.getDouble('musicVolume') ?? 0.4;
+  static set musicVolume(double v) => _p?.setDouble('musicVolume', v);
+
   // Supabase integration shortcut helper
   static User? get currentUser => Supabase.instance.client.auth.currentUser;
 
@@ -28,8 +58,6 @@ static Future<void> setLocalUsername(String name) async {
       if (localJoinDate.startsWith('JOINED ')) 'join_date': localJoinDate,
       ...data,
     };
-    // UPDATE only — the Supabase trigger creates the row on signup.
-    // UPSERT would attempt an INSERT which is blocked by RLS.
     Supabase.instance.client
         .from('profiles')
         .update(safeData)
@@ -40,20 +68,64 @@ static Future<void> setLocalUsername(String name) async {
 
   static Future<void> init() async {
     _p = await SharedPreferences.getInstance();
-    
-    // IF logged in, sync down latest server cloud values before pulling into settings objects
+
+    // Every fresh device starts as a real anonymous Supabase user — this is
+    // what makes sign-out/sign-in and "keep my progress" actually work,
+    // instead of guest data just living in local prefs with nothing to link.
+    if (currentUser == null) {
+      try {
+        await Supabase.instance.client.auth.signInAnonymously();
+      } catch (e) {
+        debugPrint('Anonymous sign-in failed: $e');
+      }
+    }
+
     if (currentUser != null) {
       await downloadCloudProfile();
     }
 
-    // Push saved settings into AppSettings on load
     AppSettings.showTimer = _p?.getBool('showTimer') ?? true;
     AppSettings.enableMs = _p?.getBool('enableMs') ?? false;
     AppSettings.movesDisplay = _p?.getInt('movesDisplay') ?? 0;
     AppSettings.haptic = _p?.getBool('haptic') ?? true;
   }
 
-  // Method to download everything from Supabase and cache it locally on startup or login
+  static Future<void> signOutToGuest() async {
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (e) {
+      debugPrint('Sign out failed: $e');
+    }
+    // Anonymous auth may be disabled on the backend (it currently is) — don't
+    // depend on it succeeding. Either way, wipe every local trace of the
+    // signed-out account so the app genuinely starts blank.
+    try {
+      await Supabase.instance.client.auth.signInAnonymously();
+      if (currentUser != null) await downloadCloudProfile();
+    } catch (e) {
+      debugPrint('Anonymous sign-in unavailable — continuing as local-only guest: $e');
+    }
+    await wipeLocalProfileData();
+  }
+
+  /// Clears every locally-cached account field (username, XP, completed
+  /// puzzles, achievements, streak, mod/dev flags, avatar, etc.) without
+  /// touching device-only settings like theme or haptics.
+  static Future<void> wipeLocalProfileData() async {
+    const fields = [
+      'username', 'avatarPath', 'joinDate',
+      'totalXP', 'totalFlips', 'parStreak',
+      'completedPuzzles', 'failedPuzzles', 'parPuzzles', 'unlockedAchievements',
+      'unlockedTexturePacks', 'activeTexturePack',
+      'currentStreak', 'lastDailyDate',
+      'isModerator', 'isDevProfile', 'recentPack',
+      'notifHour', 'notifMinute',
+    ];
+    for (final k in fields) {
+      await _p?.remove(k);
+    }
+  }
+
   static Future<void> downloadCloudProfile() async {
     if (currentUser == null) return;
     try {
@@ -63,34 +135,28 @@ static Future<void> setLocalUsername(String name) async {
           .eq('id', currentUser!.id)
           .single();
 
-      
-await _p?.setString('username', data['username'] ?? 'Puzzle Apprentice');
+      await _p?.setString('username', data['username'] ?? 'Puzzle Apprentice');
 
-if (data['avatar_path'] != null) {
-  String cachedPath = data['avatar_path'];
-  // If the database returned a relative path, convert it to a full URL before caching locally
-  if (!cachedPath.startsWith('http')) {
-    cachedPath = Supabase.instance.client.storage.from('avatars').getPublicUrl(cachedPath);
-  }
-  await _p?.setString('avatarPath', cachedPath);
-} else {
-  await _p?.remove('avatarPath');
-}
+      if (data['avatar_path'] != null) {
+        String cachedPath = data['avatar_path'];
+        if (!cachedPath.startsWith('http')) {
+          cachedPath = Supabase.instance.client.storage.from('avatars').getPublicUrl(cachedPath);
+        }
+        await _p?.setString('avatarPath', cachedPath);
+      } else {
+        await _p?.remove('avatarPath');
+      }
 
       final cloudJoinDate = data['join_date']?.toString() ?? '';
       if (cloudJoinDate.startsWith('JOINED ')) {
-        // Cloud has the real join date — always trust it.
         await _p?.setString('joinDate', cloudJoinDate);
       } else {
-        // Cloud is missing one (never got pushed after signup). If we already
-        // have a valid local value, repair the cloud row with it — never let
-        // "today" get generated here.
         final localJoinDate = _p?.getString('joinDate');
         if (localJoinDate != null && localJoinDate.startsWith('JOINED ')) {
           syncToCloud({'join_date': localJoinDate});
         }
       }
-      // If cloud value is missing or badly formatted, keep local value intact
+
       await _p?.setInt('totalXP', data['total_xp'] ?? 0);
       await _p?.setInt('totalFlips', data['total_flips'] ?? 0);
       await _p?.setBool('showTimer', data['show_timer'] ?? true);
@@ -101,22 +167,17 @@ if (data['avatar_path'] != null) {
       await _p?.setInt('notifMinute', data['notif_minute'] ?? 0);
       await _p?.setString('recentPack', data['recent_pack'] ?? '');
 
-      // Convert dynamic database text arrays back cleanly into local Lists
       if (data['unlocked_achievements'] != null) {
-        final List<String> list = List<String>.from(data['unlocked_achievements']);
-        await _p?.setStringList('unlockedAchievements', list);
+        await _p?.setStringList('unlockedAchievements', List<String>.from(data['unlocked_achievements']));
       }
       if (data['completed_puzzles'] != null) {
-        final List<String> list = List<String>.from(data['completed_puzzles']);
-        await _p?.setStringList('completedPuzzles', list);
+        await _p?.setStringList('completedPuzzles', List<String>.from(data['completed_puzzles']));
       }
       if (data['failed_puzzles'] != null) {
-        final List<String> list = List<String>.from(data['failed_puzzles']);
-        await _p?.setStringList('failedPuzzles', list);
+        await _p?.setStringList('failedPuzzles', List<String>.from(data['failed_puzzles']));
       }
       if (data['par_puzzles'] != null) {
-        final List<String> list = List<String>.from(data['par_puzzles']);
-        await _p?.setStringList('parPuzzles', list);
+        await _p?.setStringList('parPuzzles', List<String>.from(data['par_puzzles']));
       }
       await _p?.setInt('currentStreak', data['current_streak'] ?? 0);
       if (data['last_daily_date'] != null) {
@@ -125,67 +186,65 @@ if (data['avatar_path'] != null) {
       await _p?.setBool('isModerator', data['is_moderator'] ?? false);
       await _p?.setBool('isDevProfile', data['is_dev_profile'] ?? false);
       if (data['unlocked_texture_packs'] != null) {
-        final List<String> list = List<String>.from(data['unlocked_texture_packs']);
-        await _p?.setStringList('unlockedTexturePacks', list);
+        await _p?.setStringList('unlockedTexturePacks', List<String>.from(data['unlocked_texture_packs']));
       }
       await _p?.setString('activeTexturePack', data['active_texture_pack'] ?? 'classic');
     } catch (e) {
       debugPrint("Error bringing down cloud profile values: $e");
     }
   }
+
   static int get parStreak => _p?.getInt('parStreak') ?? 0;
   static set parStreak(int v) => _p?.setInt('parStreak', v);
-  // ── Stats
-  static int get totalFlips => _p?.getInt('totalFlips') ?? 0;
-  static set totalFlips(int v) {
-    _p?.setInt('totalFlips', v);
-    syncToCloud({'total_flips': v});
-  }
 
-  // ── Achievements
-  static Set<String> get unlockedAchievements =>
-      (_p?.getStringList('unlockedAchievements') ?? []).toSet();
+  static int get totalFlips => _p?.getInt('totalFlips') ?? 0;
+  static set totalFlips(int v) { _p?.setInt('totalFlips', v); syncToCloud({'total_flips': v}); }
+
+  static Set<String> get unlockedAchievements => (_p?.getStringList('unlockedAchievements') ?? []).toSet();
   static void unlockAchievement(String id) {
-    final s = unlockedAchievements..add(id);
-    final list = s.toList();
+    final list = (unlockedAchievements..add(id)).toList();
     _p?.setStringList('unlockedAchievements', list);
     syncToCloud({'unlocked_achievements': list});
   }
   static bool isUnlocked(String id) => unlockedAchievements.contains(id);
-  // ── Texture Packs
-  static Set<String> get unlockedTexturePacks =>
-      (_p?.getStringList('unlockedTexturePacks') ?? <String>['classic']).toSet();
+
+  static Set<String> get unlockedTexturePacks => (_p?.getStringList('unlockedTexturePacks') ?? <String>['classic']).toSet();
   static void unlockTexturePack(String id) {
-    final s = unlockedTexturePacks..add(id);
-    final list = s.toList();
+    final list = (unlockedTexturePacks..add(id)).toList();
     _p?.setStringList('unlockedTexturePacks', list);
     syncToCloud({'unlocked_texture_packs': list});
   }
   static bool isTexturePackUnlocked(String id) => id == 'classic' || unlockedTexturePacks.contains(id);
 
   static String get activeTexturePack => _p?.getString('activeTexturePack') ?? 'classic';
-  static set activeTexturePack(String v) {
-    _p?.setString('activeTexturePack', v);
-    syncToCloud({'active_texture_pack': v});
-  }
-  // ── Profile
-  // ── Profile
-  static String get username => _p?.getString('username') ?? 'Puzzle Apprentice';
-  static set username(String v) {
-    _p?.setString('username', v);
-    syncToCloud({'username': v});
-  }
+  static set activeTexturePack(String v) { _p?.setString('activeTexturePack', v); syncToCloud({'active_texture_pack': v}); }
 
-  // Prefers the signed-in account's username (set at sign up) over the
-  // local guest username, so Profile always shows who's actually logged in.
+  static String get username => _p?.getString('username') ?? 'Puzzle Apprentice';
+  static set username(String v) { _p?.setString('username', v); syncToCloud({'username': v}); }
+
   static Future<bool> isUsernameAvailable(String username) async {
     try {
       final result = await Supabase.instance.client
           .rpc('check_username_available', params: {'check_username': username});
       return result == true;
     } catch (_) {
-      return true; // fail open — trigger constraint catches duplicates
+      return true;
     }
+  }
+
+  // Resolves "email or username" login input to an actual email via RPC.
+  // Requires this SQL function on Supabase:
+  //
+  // create or replace function resolve_username_email(check_username text)
+  // returns text language sql security definer as $$
+  //   select email from auth.users u join profiles p on p.id = u.id
+  //   where p.username = check_username limit 1;
+  // $$;
+  static Future<String> resolveUsernameToEmail(String username) async {
+    final email = await Supabase.instance.client
+        .rpc('resolve_username_email', params: {'check_username': username});
+    if (email == null) throw Exception('No account found for "$username"');
+    return email as String;
   }
 
   static String get displayUsername {
@@ -207,18 +266,11 @@ if (data['avatar_path'] != null) {
         'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
     final s = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
     _p?.setString('joinDate', s);
-    // Deliberately local-only — this getter can fire incidentally from any
-    // UI read and must never silently overwrite a real join date in Supabase.
-    // Cloud sync for join date only happens in downloadCloudProfile() below
-    // and explicitly right after sign-up.
     return s;
   }
 
   static bool get haptic => _p?.getBool('haptic') ?? true;
-  static set haptic(bool v) {
-    _p?.setBool('haptic', v);
-    syncToCloud({'haptic': v});
-  }
+  static set haptic(bool v) { _p?.setBool('haptic', v); syncToCloud({'haptic': v}); }
 
   static DateTime? get lastReceiptsSeen {
     final s = _p?.getString('lastReceiptsSeen');
@@ -228,22 +280,15 @@ if (data['avatar_path'] != null) {
     await _p?.setString('lastReceiptsSeen', DateTime.now().toIso8601String());
   }
 
-  // ── Onboarding
   static bool get hasSeenOnboarding => _p?.getBool('hasSeenOnboarding') ?? false;
   static set hasSeenOnboarding(bool v) => _p?.setBool('hasSeenOnboarding', v);
 
-  // ── Moderator
   static bool get isModerator => _p?.getBool('isModerator') ?? false;
   static set isModerator(bool v) => _p?.setBool('isModerator', v);
 
-  // ── Dev profile badge (set via dev panel, persists)
   static bool get isDevProfile => _p?.getBool('isDevProfile') ?? false;
-  static set isDevProfile(bool v) {
-    _p?.setBool('isDevProfile', v);
-    syncToCloud({'is_dev_profile': v});
-  }
+  static set isDevProfile(bool v) { _p?.setBool('isDevProfile', v); syncToCloud({'is_dev_profile': v}); }
 
-  // ── Streak
   static int get currentStreak => _p?.getInt('currentStreak') ?? 0;
   static String get _lastDailyDate => _p?.getString('lastDailyDate') ?? '';
 
@@ -259,106 +304,67 @@ if (data['avatar_path'] != null) {
     syncToCloud({'current_streak': newStreak, 'last_daily_date': todayStr});
   }
 
-  // Dev helpers
   static void devSetStreak(int v) { _p?.setInt('currentStreak', v); _p?.setString('lastDailyDate', ''); }
   static void devResetStreak() { _p?.setInt('currentStreak', 0); _p?.remove('lastDailyDate'); }
 
-  // Whether today's daily has been completed (drives fire colour)
   static bool get isStreakDoneToday {
     final dayNumber = foldsDayNumberFor(DateTime.now());
     if (dayNumber < 1) return false;
     return isCompleted('d$dayNumber');
   }
 
-  // ── XP
   static int get totalXP => _p?.getInt('totalXP') ?? 0;
-  static set totalXP(int v) {
-    _p?.setInt('totalXP', v);
-    syncToCloud({'total_xp': v});
-  }
+  static set totalXP(int v) { _p?.setInt('totalXP', v); syncToCloud({'total_xp': v}); }
 
-  // ── Completed puzzles
-  static Set<String> get completedPuzzles =>
-      (_p?.getStringList('completedPuzzles') ?? []).toSet();
+  static Set<String> get completedPuzzles => (_p?.getStringList('completedPuzzles') ?? []).toSet();
   static void markCompleted(String id) {
-    final s = completedPuzzles..add(id);
-    final list = s.toList();
+    final list = (completedPuzzles..add(id)).toList();
     _p?.setStringList('completedPuzzles', list);
     syncToCloud({'completed_puzzles': list});
   }
   static bool isCompleted(String id) => completedPuzzles.contains(id);
 
-  // ── Failed puzzles (for "after par" detection)
-  // ── Par puzzles: completed at or under par → green tick (only ever grows)
-  static Set<String> get parPuzzles =>
-      (_p?.getStringList('parPuzzles') ?? []).toSet();
+  static Set<String> get parPuzzles => (_p?.getStringList('parPuzzles') ?? []).toSet();
   static void markParCompleted(String id) {
     if (isParCompleted(id)) return;
-    final s = parPuzzles..add(id);
-    final list = s.toList();
+    final list = (parPuzzles..add(id)).toList();
     _p?.setStringList('parPuzzles', list);
     syncToCloud({'par_puzzles': list});
   }
   static bool isParCompleted(String id) => parPuzzles.contains(id);
 
-  // ── Failed puzzles (for "after par" detection)
-  static Set<String> get failedPuzzles =>
-      (_p?.getStringList('failedPuzzles') ?? []).toSet();
+  static Set<String> get failedPuzzles => (_p?.getStringList('failedPuzzles') ?? []).toSet();
   static void markFailed(String id) {
-    final s = failedPuzzles..add(id);
-    final list = s.toList();
+    final list = (failedPuzzles..add(id)).toList();
     _p?.setStringList('failedPuzzles', list);
     syncToCloud({'failed_puzzles': list});
   }
   static bool hasFailed(String id) => failedPuzzles.contains(id);
 
-  // ── Recently played pack
   static String get recentPack => _p?.getString('recentPack') ?? '';
-  static set recentPack(String v) {
-    _p?.setString('recentPack', v);
-    syncToCloud({'recent_pack': v});
-  }
+  static set recentPack(String v) { _p?.setString('recentPack', v); syncToCloud({'recent_pack': v}); }
 
-  // ── Settings
   static bool get showTimer => _p?.getBool('showTimer') ?? true;
-  static set showTimer(bool v) {
-    _p?.setBool('showTimer', v);
-    AppSettings.showTimer = v;
-    syncToCloud({'show_timer': v});
-  }
+  static set showTimer(bool v) { _p?.setBool('showTimer', v); AppSettings.showTimer = v; syncToCloud({'show_timer': v}); }
 
   static bool get enableMs => _p?.getBool('enableMs') ?? false;
-  static set enableMs(bool v) {
-    _p?.setBool('enableMs', v);
-    AppSettings.enableMs = v;
-    syncToCloud({'enable_ms': v});
-  }
+  static set enableMs(bool v) { _p?.setBool('enableMs', v); AppSettings.enableMs = v; syncToCloud({'enable_ms': v}); }
 
   static int get movesDisplay => _p?.getInt('movesDisplay') ?? 0;
-  static set movesDisplay(int v) {
-    _p?.setInt('movesDisplay', v);
-    AppSettings.movesDisplay = v;
-    syncToCloud({'moves_display': v});
-  }
+  static set movesDisplay(int v) { _p?.setInt('movesDisplay', v); AppSettings.movesDisplay = v; syncToCloud({'moves_display': v}); }
 
   static int get notifHour => _p?.getInt('notifHour') ?? 8;
   static int get notifMinute => _p?.getInt('notifMinute') ?? 0;
-  
+
   static void setNotifTime(TimeOfDay t) {
     _p?.setInt('notifHour', t.hour);
     _p?.setInt('notifMinute', t.minute);
-    syncToCloud({
-      'notif_hour': t.hour,
-      'notif_minute': t.minute,
-    });
+    syncToCloud({'notif_hour': t.hour, 'notif_minute': t.minute});
   }
-  
-  static TimeOfDay get notifTime =>
-      TimeOfDay(hour: notifHour, minute: notifMinute);
 
-  // ── Progress stats
-  static int get puzzlesCompleted =>
-      completedPuzzles.where((id) => !id.startsWith('d')).length;
+  static TimeOfDay get notifTime => TimeOfDay(hour: notifHour, minute: notifMinute);
+
+  static int get puzzlesCompleted => completedPuzzles.where((id) => !id.startsWith('d')).length;
 
   static int get todayCompletedCount {
     final today = DateTime.now();
@@ -370,10 +376,8 @@ if (data['avatar_path'] != null) {
     final key = 'dailyCount_${today.year}_${today.month}_${today.day}';
     _p?.setInt(key, todayCompletedCount + 1);
   }
-  static int get dailiesCompleted =>
-      completedPuzzles.where((id) => id.startsWith('d')).length;
+  static int get dailiesCompleted => completedPuzzles.where((id) => id.startsWith('d')).length;
 
-  // ── Pack progress helpers
   static int completedInRange(String prefix, int start, int count) {
     int done = 0;
     for (int i = start + 1; i <= start + count; i++) {
@@ -382,7 +386,6 @@ if (data['avatar_path'] != null) {
     return done;
   }
 
-  // ── Reset
   static Future<void> resetProgress() async {
     final fields = ['totalXP','completedPuzzles','failedPuzzles','parPuzzles','recentPack', 'totalFlips', 'unlockedAchievements'];
     for (final k in fields) {
@@ -399,17 +402,13 @@ if (data['avatar_path'] != null) {
     });
   }
 
-  // ── Offline puzzle cache
   static bool get hasOfflinePuzzles => (_p?.getString('offlinePuzzles') ?? '').isNotEmpty;
   static int get offlinePuzzleCount => _p?.getInt('offlinePuzzleCount') ?? 0;
 
   static Future<Map<String, dynamic>?> downloadAllPuzzles() async {
     try {
-      final response = await Supabase.instance.client
-          .from('puzzles').select().order('id') as List;
-      final Map<String, dynamic> puzzleMap = {
-        for (final p in response) p['id'].toString(): p
-      };
+      final response = await Supabase.instance.client.from('puzzles').select().order('id') as List;
+      final Map<String, dynamic> puzzleMap = { for (final p in response) p['id'].toString(): p };
       final jsonStr = jsonEncode(puzzleMap);
       await _p?.setString('offlinePuzzles', jsonStr);
       await _p?.setInt('offlinePuzzleCount', response.length);
@@ -444,13 +443,9 @@ if (data['avatar_path'] != null) {
     AppSettings.showTimer = true;
     AppSettings.enableMs = false;
     AppSettings.movesDisplay = 0;
-
     syncToCloud({
-      'show_timer': true,
-      'enable_ms': false,
-      'moves_display': 0,
-      'notif_hour': 8,
-      'notif_minute': 0,
+      'show_timer': true, 'enable_ms': false, 'moves_display': 0,
+      'notif_hour': 8, 'notif_minute': 0,
     });
   }
 }
