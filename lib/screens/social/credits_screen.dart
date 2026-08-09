@@ -21,15 +21,15 @@ class CreditsScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _CreditsCard(role: 'Design & Development', name: 'JayDev'),
+                      CreditsCard(role: 'Design & Development', name: 'JayDev'),
                       const SizedBox(height: 12),
-                      _CreditsCard(role: 'Music & Sound Design', name: 'Thrifty & Swifty'),
+                      CreditsCard(role: 'Music & Sound Design', name: 'Thrifty & Swifty'),
                       const SizedBox(height: 12),
-                      _CreditsCard(role: 'Fonts', name: 'DM Sans — Google Fonts'),
+                      CreditsCard(role: 'Fonts', name: 'DM Sans — Google Fonts'),
                       const SizedBox(height: 12),
-                      _CreditsCard(role: 'Backend', name: 'Supabase'),
+                      CreditsCard(role: 'Backend', name: 'Supabase'),
                       const SizedBox(height: 12),
-                      _CreditsCard(role: 'Special Thanks', name: 'Everyone who playtested Folds'),
+                      CreditsCard(role: 'Special Thanks', name: 'Everyone who playtested Folds'),
                       const SizedBox(height: 28),
                       Center(
                         child: Text('Made with ❤️ by JayDev Games',
@@ -47,10 +47,10 @@ class CreditsScreen extends StatelessWidget {
   }
 }
 
-class _CreditsCard extends StatelessWidget {
+class CreditsCard extends StatelessWidget {
   final String role;
   final String name;
-  const _CreditsCard({required this.role, required this.name});
+  const CreditsCard({required this.role, required this.name});
 
   @override
   Widget build(BuildContext context) {

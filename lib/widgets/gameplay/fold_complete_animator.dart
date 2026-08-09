@@ -42,10 +42,10 @@ class FoldCompleteAnimator extends StatefulWidget {
     this.gridCols = 4,
   });
   @override
-  State<FoldCompleteAnimator> createState() => _FoldCompleteAnimatorState();
+  State<FoldCompleteAnimator> createState() => FoldCompleteAnimatorState();
 }
 
-class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
+class FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
     with TickerProviderStateMixin {
   // Stage 0: fold left half onto right half, in place (no sliding)
   late AnimationController _foldCtrl;
@@ -161,7 +161,7 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
                           Positioned(
                             right: 0, top: 0,
                             width: foldedWidth, height: gridHeight,
-                            child: _GridHalf(
+                            child: GridHalf(
                               cells: widget.cells, isLeft: false,
                               gridRows: widget.gridRows, gridCols: widget.gridCols,
                               isHoliday: widget.isHoliday,
@@ -175,7 +175,7 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
                               transform: Matrix4.identity()
                                 ..setEntry(3, 2, 0.001)
                                 ..rotateY(_foldAngle.value),
-                              child: _GridHalf(
+                              child: GridHalf(
                                 cells: widget.cells, isLeft: true,
                                 gridRows: widget.gridRows, gridCols: widget.gridCols,
                                 isHoliday: widget.isHoliday,
@@ -215,7 +215,7 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
                                     child: Center(
                                       child: Transform.scale(
                                         scale: _stampScale.value.clamp(0.0, 10.0),
-                                        child: _StampWidget(isGold: _isUnderPar),
+                                        child: StampWidget(isGold: _isUnderPar),
                                       ),
                                     ),
                                   ),
@@ -235,7 +235,7 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
               animation: _statsCtrl,
               builder: (context, child) => Opacity(
                 opacity: _statsFade.value,
-                child: _StatsCard(
+                child: StatsCard(
                   timeDisplay: widget.timeDisplay,
                   moves: widget.moves,
                   par: widget.par,
@@ -253,14 +253,14 @@ class _FoldCompleteAnimatorState extends State<FoldCompleteAnimator>
   }
 }
 
-class _GridHalf extends StatelessWidget {
+class GridHalf extends StatelessWidget {
   final List<bool> cells;
   final bool isLeft;
   final int gridRows;
   final int gridCols;
   final bool isHoliday;
 
-  const _GridHalf({
+  const GridHalf({
     required this.cells,
     required this.isLeft,
     required this.gridRows,
@@ -323,9 +323,9 @@ class _GridHalf extends StatelessWidget {
 
 
 // ── Stamp widget ──────────────────────────────────────────────────────────────
-class _StampWidget extends StatelessWidget {
+class StampWidget extends StatelessWidget {
   final bool isGold;
-  const _StampWidget({required this.isGold});
+  const StampWidget({required this.isGold});
 
   @override
   Widget build(BuildContext context) {
@@ -371,7 +371,7 @@ class _StampWidget extends StatelessWidget {
 }
 
 // ── Stats card ────────────────────────────────────────────────────────────────
-class _StatsCard extends StatelessWidget {
+class StatsCard extends StatelessWidget {
   final String timeDisplay;
   final int moves;
   final int par;
@@ -381,7 +381,7 @@ class _StatsCard extends StatelessWidget {
   final VoidCallback? onNext;
   final int earnedXP;
 
-  const _StatsCard({
+  const StatsCard({
     required this.timeDisplay,
     required this.moves,
     required this.par,
@@ -408,10 +408,10 @@ class _StatsCard extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _StatItem(emoji: '⏳', value: timeDisplay),
-                _StatItem(emoji: '💡', value: '0'),
-                _StatItem(emoji: '➡️', value: '$moves/$par'),
-                _XPCountUp(target: earnedXP),
+                StatItem(emoji: '⏳', value: timeDisplay),
+                StatItem(emoji: '💡', value: '0'),
+                StatItem(emoji: '➡️', value: '$moves/$par'),
+                XPCountUp(target: earnedXP),
               ],
             ),
           ),
@@ -529,10 +529,10 @@ class _StatsCard extends StatelessWidget {
   }
 }
 
-class _StatItem extends StatelessWidget {
+class StatItem extends StatelessWidget {
   final String emoji;
   final String value;
-  const _StatItem({required this.emoji, required this.value});
+  const StatItem({required this.emoji, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -548,15 +548,15 @@ class _StatItem extends StatelessWidget {
   }
 }
 
-class _XPCountUp extends StatefulWidget {
+class XPCountUp extends StatefulWidget {
   final int target;
-  const _XPCountUp({required this.target});
+  const XPCountUp({required this.target});
   @override
-  State<_XPCountUp> createState() => _XPCountUpState();
+  State<XPCountUp> createState() => XPCountUpState();
 }
 
 
-class _XPCountUpState extends State<_XPCountUp>
+class XPCountUpState extends State<XPCountUp>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
   late Animation<int> _anim;

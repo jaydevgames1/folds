@@ -21,24 +21,24 @@ class StatsTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 16),
-          _StatSectionLabel('OVERVIEW'),
-          _StatRowItem(label: 'Total Solved', value: '${AppStore.puzzlesCompleted + dailies}'),
-          _StatRowItem(label: 'Solved at Par ★', value: '$totalPar'),
-          _StatRowItem(label: 'Daily Folds', value: '$dailies'),
-          _StatRowItem(label: 'Current Streak', value: '${AppStore.currentStreak} 🔥'),
-          _StatRowItem(label: 'Total Cells Flipped', value: '${AppStore.totalFlips}'),
+          StatSectionLabel('OVERVIEW'),
+          StatRowItem(label: 'Total Solved', value: '${AppStore.puzzlesCompleted + dailies}'),
+          StatRowItem(label: 'Solved at Par ★', value: '$totalPar'),
+          StatRowItem(label: 'Daily Folds', value: '$dailies'),
+          StatRowItem(label: 'Current Streak', value: '${AppStore.currentStreak} 🔥'),
+          StatRowItem(label: 'Total Cells Flipped', value: '${AppStore.totalFlips}'),
           const SizedBox(height: 8),
-          _StatSectionLabel('PILOT PACK'),
-          _StatPackRow(label: '4×4', done: p4, total: 50),
-          _StatPackRow(label: '6×6', done: p6, total: 30),
-          _StatPackRow(label: '8×8', done: p8, total: 20),
+          StatSectionLabel('PILOT PACK'),
+          StatPackRow(label: '4×4', done: p4, total: 50),
+          StatPackRow(label: '6×6', done: p6, total: 30),
+          StatPackRow(label: '8×8', done: p8, total: 20),
           const SizedBox(height: 8),
-          _StatSectionLabel('RECTANGLE PACK'),
-          _StatPackRow(label: 'Rectangle', done: rect, total: 100),
+          StatSectionLabel('RECTANGLE PACK'),
+          StatPackRow(label: 'Rectangle', done: rect, total: 100),
           if (!DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
             const SizedBox(height: 8),
-            _StatSectionLabel('HOLIDAY PACK'),
-            _StatPackRow(label: 'Holiday', done: holiday, total: 25),
+            StatSectionLabel('HOLIDAY PACK'),
+            StatPackRow(label: 'Holiday', done: holiday, total: 25),
           ],
           const SizedBox(height: 24),
         ],
@@ -47,9 +47,9 @@ class StatsTab extends StatelessWidget {
   }
 }
 
-class _StatSectionLabel extends StatelessWidget {
+class StatSectionLabel extends StatelessWidget {
   final String text;
-  const _StatSectionLabel(this.text);
+  const StatSectionLabel(this.text);
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 8, top: 4),
@@ -59,11 +59,11 @@ class _StatSectionLabel extends StatelessWidget {
   );
 }
 
-class _StatPackRow extends StatelessWidget {
+class StatPackRow extends StatelessWidget {
   final String label;
   final int done;
   final int total;
-  const _StatPackRow({required this.label, required this.done, required this.total});
+  const StatPackRow({required this.label, required this.done, required this.total});
 
   @override
   Widget build(BuildContext context) {
@@ -102,10 +102,10 @@ class _StatPackRow extends StatelessWidget {
   }
 }
 
-class _StatRowItem extends StatelessWidget {
+class StatRowItem extends StatelessWidget {
   final String label;
   final String value;
-  const _StatRowItem({required this.label, required this.value});
+  const StatRowItem({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -170,17 +170,17 @@ class AchievementsTab extends StatelessWidget {
           ]),
         ),
         for (final cat in _categories) ...[
-          _AchievementSection(label: cat.$1, ids: cat.$2),
+          AchievementSection(label: cat.$1, ids: cat.$2),
         ],
       ],
     );
   }
 }
 
-class _AchievementSection extends StatelessWidget {
+class AchievementSection extends StatelessWidget {
   final String label;
   final List<String> ids;
-  const _AchievementSection({required this.label, required this.ids});
+  const AchievementSection({required this.label, required this.ids});
 
   @override
   Widget build(BuildContext context) {

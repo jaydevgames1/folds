@@ -5,18 +5,17 @@ import 'package:folds/screens/moderation/moderator_notify_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:folds/widgets/shared/folds_top_bar.dart';
 import 'package:folds/screens/puzzles/puzzle_selector_screen.dart';
-import 'package:folds/main.dart';
 import 'package:folds/screens/profile/auth_screen.dart';
 
 class ModeratorPanelScreen extends StatefulWidget {
   const ModeratorPanelScreen({super.key});
   @override
-  State<ModeratorPanelScreen> createState() => _ModeratorPanelScreenState();
+  State<ModeratorPanelScreen> createState() => ModeratorPanelScreenState();
 }
 
-class _ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
+class ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
   bool _requesting = false;
-  String? _requestStatus; // null, 'approved', 'pending', 'error'
+  String? requestStatus; // null, 'approved', 'pending', 'error'
   String _approvedUsername = '';
 
   Future<void> _request() async {
@@ -32,11 +31,11 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
         AppStore.isModerator = true;
         setState(() {
           _approvedUsername = uname;
-          _requestStatus = 'approved';
+          requestStatus = 'approved';
         });
         _showResult('approved');
       } else {
-        setState(() => _requestStatus = 'pending');
+        setState(() => requestStatus = 'pending');
         _showResult('pending');
       }
     } catch (_) {

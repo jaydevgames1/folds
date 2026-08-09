@@ -7,10 +7,10 @@ import 'package:folds/widgets/shared/folds_top_bar.dart';
 class ReceiptsScreen extends StatefulWidget {
   const ReceiptsScreen({super.key});
   @override
-  State<ReceiptsScreen> createState() => _ReceiptsScreenState();
+  State<ReceiptsScreen> createState() => ReceiptsScreenState();
 }
 
-class _ReceiptsScreenState extends State<ReceiptsScreen> {
+class ReceiptsScreenState extends State<ReceiptsScreen> {
   List<Map<String, dynamic>> _receipts = [];
   bool _loading = true;
   final Set<int> _expanded = {};

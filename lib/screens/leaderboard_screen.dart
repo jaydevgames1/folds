@@ -13,10 +13,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
   @override
-  State<LeaderboardScreen> createState() => _LeaderboardScreenState();
+  State<LeaderboardScreen> createState() => LeaderboardScreenState();
 }
 
-class _LeaderboardScreenState extends State<LeaderboardScreen> {
+class LeaderboardScreenState extends State<LeaderboardScreen> {
   List<Map<String, dynamic>> _entries = [];
   bool _loading = true;
   String? _error;

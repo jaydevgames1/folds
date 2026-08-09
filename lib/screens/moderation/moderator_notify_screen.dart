@@ -8,10 +8,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ModeratorNotifyScreen extends StatefulWidget {
   const ModeratorNotifyScreen({super.key});
   @override
-  State<ModeratorNotifyScreen> createState() => _ModeratorNotifyScreenState();
+  State<ModeratorNotifyScreen> createState() => ModeratorNotifyScreenState();
 }
 
-class _ModeratorNotifyScreenState extends State<ModeratorNotifyScreen> {
+class ModeratorNotifyScreenState extends State<ModeratorNotifyScreen> {
   final _titleCtrl = TextEditingController();
   final _bodyCtrl = TextEditingController();
   String _recipient = 'all';

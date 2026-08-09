@@ -10,10 +10,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class DailyArchiveScreen extends StatefulWidget {
   const DailyArchiveScreen({super.key});
   @override
-  State<DailyArchiveScreen> createState() => _DailyArchiveScreenState();
+  State<DailyArchiveScreen> createState() => DailyArchiveScreenState();
 }
 
-class _DailyArchiveScreenState extends State<DailyArchiveScreen> {
+class DailyArchiveScreenState extends State<DailyArchiveScreen> {
   List<Map<String, dynamic>> _dailies = [];
   bool _loading = true;
   int _filterDifficulty = 0; // 0 = all

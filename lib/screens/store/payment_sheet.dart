@@ -71,7 +71,7 @@ class PaymentSheetState extends State<PaymentSheet> {
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 350),
         child: _success
-            ? _SuccessState(productName: widget.productName)
+            ? SuccessState(productName: widget.productName)
             : Column(
                 key: const ValueKey('form'),
                 mainAxisSize: MainAxisSize.min,
@@ -100,10 +100,10 @@ class PaymentSheetState extends State<PaymentSheet> {
                     ),
                   ]),
                   const SizedBox(height: 24),
-                  _PayField(label: 'CARDHOLDER NAME', controller: _nameCtrl,
+                  PayField(label: 'CARDHOLDER NAME', controller: _nameCtrl,
                     hint: 'Jay Dev', keyboard: TextInputType.name),
                   const SizedBox(height: 12),
-                  _PayField(
+                  PayField(
                     label: 'CARD NUMBER', controller: _cardCtrl,
                     hint: '1234 5678 9012 3456',
                     keyboard: TextInputType.number, maxLen: 19,
@@ -118,7 +118,7 @@ class PaymentSheetState extends State<PaymentSheet> {
                   ),
                   const SizedBox(height: 12),
                   Row(children: [
-                    Expanded(child: _PayField(
+                    Expanded(child: PayField(
                       label: 'EXPIRY', controller: _expiryCtrl,
                       hint: 'MM/YY', keyboard: TextInputType.number, maxLen: 5,
                       onChanged: (v) {
@@ -131,7 +131,7 @@ class PaymentSheetState extends State<PaymentSheet> {
                       },
                     )),
                     const SizedBox(width: 12),
-                    Expanded(child: _PayField(
+                    Expanded(child: PayField(
                       label: 'CVC', controller: _cvcCtrl,
                       hint: '•••', keyboard: TextInputType.number, maxLen: 4,
                       obscure: true,
@@ -177,7 +177,7 @@ class PaymentSheetState extends State<PaymentSheet> {
   }
 }
 
-class _PayField extends StatelessWidget {
+class PayField extends StatelessWidget {
   final String label;
   final String hint;
   final TextEditingController controller;
@@ -186,7 +186,7 @@ class _PayField extends StatelessWidget {
   final bool obscure;
   final ValueChanged<String>? onChanged;
 
-  const _PayField({
+  const PayField({
     required this.label,
     required this.hint,
     required this.controller,
@@ -228,9 +228,9 @@ class _PayField extends StatelessWidget {
   }
 }
 
-class _SuccessState extends StatelessWidget {
+class SuccessState extends StatelessWidget {
   final String productName;
-  const _SuccessState({required this.productName});
+  const SuccessState({required this.productName});
   @override
   Widget build(BuildContext context) {
     return Column(

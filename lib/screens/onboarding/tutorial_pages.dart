@@ -17,10 +17,10 @@ class TutorialGrid extends StatefulWidget {
   });
 
   @override
-  State<TutorialGrid> createState() => _TutorialGridState();
+  State<TutorialGrid> createState() => TutorialGridState();
 }
 
-class _TutorialGridState extends State<TutorialGrid> {
+class TutorialGridState extends State<TutorialGrid> {
   late List<bool> _cells;
   bool _solved = false;
   int _moves = 0;

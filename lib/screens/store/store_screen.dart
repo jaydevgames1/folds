@@ -57,7 +57,7 @@ class StoreScreen extends StatelessWidget {
 
               
               // ── Stacked full-width packs ──────────────────
-              _FullWidthStoreCard(
+              FullWidthStoreCard(
                 title: 'NO ADS',
                 subtitle: 'REMOVE ALL ADS FOREVER',
                 price: '\$2.99',
@@ -65,7 +65,7 @@ class StoreScreen extends StatelessWidget {
                 productId: 'games.jaydev.folds.no_ads',
               ),
               const SizedBox(height: 12),
-              _FullWidthStoreCard(
+              FullWidthStoreCard(
                 title: 'RECTANGLE PACK',
                 subtitle: '100 PUZZLES',
                 price: '\$2.99',
@@ -90,11 +90,11 @@ class StoreScreen extends StatelessWidget {
               // ── Hints row ──────────────────────────────────
               Row(
                 children: [
-                  Expanded(child: _HintCard(label: '5 HINTS', price: '\$0.99', productId: 'games.jaydev.folds.hints_5')),
+                  Expanded(child: HintCard(label: '5 HINTS', price: '\$0.99', productId: 'games.jaydev.folds.hints_5')),
                   const SizedBox(width: 8),
-                  Expanded(child: _HintCard(label: '25 HINTS', price: '\$3.99', productId: 'games.jaydev.folds.hints_25')),
+                  Expanded(child: HintCard(label: '25 HINTS', price: '\$3.99', productId: 'games.jaydev.folds.hints_25')),
                   const SizedBox(width: 8),
-                  Expanded(child: _HintCard(label: '∞ HINTS', price: '\$7.99', productId: 'games.jaydev.folds.hints_unlimited')),
+                  Expanded(child: HintCard(label: '∞ HINTS', price: '\$7.99', productId: 'games.jaydev.folds.hints_unlimited')),
                 ],
               ),
               const SizedBox(height: 8),
@@ -162,14 +162,14 @@ Container(
 
 
 
-class _FullWidthStoreCard extends StatelessWidget {
+class FullWidthStoreCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final String price;
   final StoreShape shape;
   final String productId;
 
-  const _FullWidthStoreCard({
+  const FullWidthStoreCard({
     required this.title,
     required this.subtitle,
     required this.price,
@@ -235,13 +235,13 @@ class _FullWidthStoreCard extends StatelessWidget {
   }
 }
 // ── Hint card ─────────────────────────────────────────────────────────────────
-class _HintCard extends StatelessWidget {
+class HintCard extends StatelessWidget {
   final String label;
   final String price;
   final String? badge;
   final String productId;
 
-  const _HintCard({
+  const HintCard({
     required this.label, required this.price, required this.productId,
   }) : badge = null;
 

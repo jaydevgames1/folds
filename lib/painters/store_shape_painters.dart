@@ -15,11 +15,11 @@ class ShapeWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (shape) {
       case StoreShape.rectangle:
-        return CustomPaint(size: Size(size, size * 0.7), painter: _RectanglePainter());
+        return CustomPaint(size: Size(size, size * 0.7), painter: RectanglePainter());
       case StoreShape.circle:
-        return CustomPaint(size: Size(size, size), painter: _CirclePainter());
+        return CustomPaint(size: Size(size, size), painter: CirclePainter());
       case StoreShape.hexa:
-        return CustomPaint(size: Size(size, size), painter: _HexaPainter());
+        return CustomPaint(size: Size(size, size), painter: HexaPainter());
       case StoreShape.noAds:
         return Stack(
           alignment: Alignment.center,
@@ -30,14 +30,14 @@ class ShapeWidget extends StatelessWidget {
             ),
             Text('ADS',
               style: GoogleFonts.dmSans(fontSize: size * 0.25, fontWeight: FontWeight.w800, color: Colors.white)),
-            CustomPaint(size: Size(size, size), painter: _NoBanPainter()),
+            CustomPaint(size: Size(size, size), painter: NoBanPainter()),
           ],
         );
     }
   }
 }
 
-class _RectanglePainter extends CustomPainter {
+class RectanglePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = Colors.white;
@@ -48,7 +48,7 @@ class _RectanglePainter extends CustomPainter {
   @override bool shouldRepaint(_) => false;
 }
 
-class _CirclePainter extends CustomPainter {
+class CirclePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final c = Offset(size.width / 2, size.height / 2);
@@ -67,7 +67,7 @@ class _CirclePainter extends CustomPainter {
   @override bool shouldRepaint(_) => false;
 }
 
-class _HexaPainter extends CustomPainter {
+class HexaPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
@@ -96,7 +96,7 @@ class _HexaPainter extends CustomPainter {
   @override bool shouldRepaint(_) => false;
 }
 
-class _NoBanPainter extends CustomPainter {
+class NoBanPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()

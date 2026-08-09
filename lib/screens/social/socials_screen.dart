@@ -22,7 +22,7 @@ class SocialsScreen extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _SocialCard(
+                      SocialCard(
                         icon: Icons.forum_rounded,
                         iconColor: const Color(0xFF5865F2),
                         title: 'Discord',
@@ -30,7 +30,7 @@ class SocialsScreen extends StatelessWidget {
                         onTap: () {},
                       ),
                       
-                      _SocialCard(
+                      SocialCard(
                         icon: Icons.smart_display_rounded,
                         iconColor: const Color(0xFFFF3B30),
                         title: 'YouTube',
@@ -38,7 +38,7 @@ class SocialsScreen extends StatelessWidget {
                         onTap: () => launchCustomUrl('https://www.youtube.com/@JayDevGames1'),
                       ),
                       
-                      _SocialCard(
+                      SocialCard(
                         icon: Icons.music_note_rounded,
                         iconColor: const Color(0xFF25F4EE),
                         title: 'TikTok',
@@ -46,7 +46,7 @@ class SocialsScreen extends StatelessWidget {
                         onTap: () => launchCustomUrl('https://www.tiktok.com/@jaydevgames'),
                       ),
                       
-                      _SocialCard(
+                      SocialCard(
                         icon: Icons.camera_alt_rounded,
                         iconColor: const Color(0xFFE1306C),
                         title: 'Instagram',
@@ -54,7 +54,7 @@ class SocialsScreen extends StatelessWidget {
                         onTap: () => launchCustomUrl('https://www.instagram.com/jaydev_games'),
                       ),
                       
-                      _SocialCard(
+                      SocialCard(
                         icon: Icons.public_rounded,
                         iconColor: const Color(0xFFFFD465),
                         title: 'Website',
@@ -73,14 +73,14 @@ class SocialsScreen extends StatelessWidget {
   }
 }
 
-class _SocialCard extends StatefulWidget {
+class SocialCard extends StatefulWidget {
   final IconData icon;
   final Color iconColor;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
 
-  const _SocialCard({
+  const SocialCard({
     required this.icon,
     required this.iconColor,
     required this.title,
@@ -89,10 +89,10 @@ class _SocialCard extends StatefulWidget {
   });
 
   @override
-  State<_SocialCard> createState() => _SocialCardState();
+  State<SocialCard> createState() => SocialCardState();
 }
 
-class _SocialCardState extends State<_SocialCard> {
+class SocialCardState extends State<SocialCard> {
   double _scale = 1.0;
 
   @override

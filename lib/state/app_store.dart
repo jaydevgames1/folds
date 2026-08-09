@@ -21,7 +21,7 @@ static Future<void> setLocalUsername(String name) async {
   static User? get currentUser => Supabase.instance.client.auth.currentUser;
 
   // Helper function to safely run background cloud updates
-  static void _syncToCloud(Map<String, dynamic> data) {
+  static void syncToCloud(Map<String, dynamic> data) {
     if (currentUser == null || currentUser!.isAnonymous) return;
     final localJoinDate = _p?.getString('joinDate') ?? '';
     final safeData = <String, dynamic>{
@@ -87,7 +87,7 @@ if (data['avatar_path'] != null) {
         // "today" get generated here.
         final localJoinDate = _p?.getString('joinDate');
         if (localJoinDate != null && localJoinDate.startsWith('JOINED ')) {
-          _syncToCloud({'join_date': localJoinDate});
+          syncToCloud({'join_date': localJoinDate});
         }
       }
       // If cloud value is missing or badly formatted, keep local value intact
@@ -139,7 +139,7 @@ if (data['avatar_path'] != null) {
   static int get totalFlips => _p?.getInt('totalFlips') ?? 0;
   static set totalFlips(int v) {
     _p?.setInt('totalFlips', v);
-    _syncToCloud({'total_flips': v});
+    syncToCloud({'total_flips': v});
   }
 
   // ── Achievements
@@ -149,7 +149,7 @@ if (data['avatar_path'] != null) {
     final s = unlockedAchievements..add(id);
     final list = s.toList();
     _p?.setStringList('unlockedAchievements', list);
-    _syncToCloud({'unlocked_achievements': list});
+    syncToCloud({'unlocked_achievements': list});
   }
   static bool isUnlocked(String id) => unlockedAchievements.contains(id);
   // ── Texture Packs
@@ -159,21 +159,21 @@ if (data['avatar_path'] != null) {
     final s = unlockedTexturePacks..add(id);
     final list = s.toList();
     _p?.setStringList('unlockedTexturePacks', list);
-    _syncToCloud({'unlocked_texture_packs': list});
+    syncToCloud({'unlocked_texture_packs': list});
   }
   static bool isTexturePackUnlocked(String id) => id == 'classic' || unlockedTexturePacks.contains(id);
 
   static String get activeTexturePack => _p?.getString('activeTexturePack') ?? 'classic';
   static set activeTexturePack(String v) {
     _p?.setString('activeTexturePack', v);
-    _syncToCloud({'active_texture_pack': v});
+    syncToCloud({'active_texture_pack': v});
   }
   // ── Profile
   // ── Profile
   static String get username => _p?.getString('username') ?? 'Puzzle Apprentice';
   static set username(String v) {
     _p?.setString('username', v);
-    _syncToCloud({'username': v});
+    syncToCloud({'username': v});
   }
 
   // Prefers the signed-in account's username (set at sign up) over the
@@ -197,7 +197,7 @@ if (data['avatar_path'] != null) {
   static String? get avatarPath => _p?.getString('avatarPath');
   static set avatarPath(String? v) {
     v == null ? _p?.remove('avatarPath') : _p?.setString('avatarPath', v);
-    _syncToCloud({'avatar_path': v});
+    syncToCloud({'avatar_path': v});
   }
 
   static String get joinDate => _p?.getString('joinDate') ?? _initJoinDateLocalOnly();
@@ -217,7 +217,7 @@ if (data['avatar_path'] != null) {
   static bool get haptic => _p?.getBool('haptic') ?? true;
   static set haptic(bool v) {
     _p?.setBool('haptic', v);
-    _syncToCloud({'haptic': v});
+    syncToCloud({'haptic': v});
   }
 
   static DateTime? get lastReceiptsSeen {
@@ -240,7 +240,7 @@ if (data['avatar_path'] != null) {
   static bool get isDevProfile => _p?.getBool('isDevProfile') ?? false;
   static set isDevProfile(bool v) {
     _p?.setBool('isDevProfile', v);
-    _syncToCloud({'is_dev_profile': v});
+    syncToCloud({'is_dev_profile': v});
   }
 
   // ── Streak
@@ -256,7 +256,7 @@ if (data['avatar_path'] != null) {
     final newStreak = _lastDailyDate == yStr ? currentStreak + 1 : 1;
     _p?.setInt('currentStreak', newStreak);
     _p?.setString('lastDailyDate', todayStr);
-    _syncToCloud({'current_streak': newStreak, 'last_daily_date': todayStr});
+    syncToCloud({'current_streak': newStreak, 'last_daily_date': todayStr});
   }
 
   // Dev helpers
@@ -274,7 +274,7 @@ if (data['avatar_path'] != null) {
   static int get totalXP => _p?.getInt('totalXP') ?? 0;
   static set totalXP(int v) {
     _p?.setInt('totalXP', v);
-    _syncToCloud({'total_xp': v});
+    syncToCloud({'total_xp': v});
   }
 
   // ── Completed puzzles
@@ -284,7 +284,7 @@ if (data['avatar_path'] != null) {
     final s = completedPuzzles..add(id);
     final list = s.toList();
     _p?.setStringList('completedPuzzles', list);
-    _syncToCloud({'completed_puzzles': list});
+    syncToCloud({'completed_puzzles': list});
   }
   static bool isCompleted(String id) => completedPuzzles.contains(id);
 
@@ -297,7 +297,7 @@ if (data['avatar_path'] != null) {
     final s = parPuzzles..add(id);
     final list = s.toList();
     _p?.setStringList('parPuzzles', list);
-    _syncToCloud({'par_puzzles': list});
+    syncToCloud({'par_puzzles': list});
   }
   static bool isParCompleted(String id) => parPuzzles.contains(id);
 
@@ -308,7 +308,7 @@ if (data['avatar_path'] != null) {
     final s = failedPuzzles..add(id);
     final list = s.toList();
     _p?.setStringList('failedPuzzles', list);
-    _syncToCloud({'failed_puzzles': list});
+    syncToCloud({'failed_puzzles': list});
   }
   static bool hasFailed(String id) => failedPuzzles.contains(id);
 
@@ -316,7 +316,7 @@ if (data['avatar_path'] != null) {
   static String get recentPack => _p?.getString('recentPack') ?? '';
   static set recentPack(String v) {
     _p?.setString('recentPack', v);
-    _syncToCloud({'recent_pack': v});
+    syncToCloud({'recent_pack': v});
   }
 
   // ── Settings
@@ -324,21 +324,21 @@ if (data['avatar_path'] != null) {
   static set showTimer(bool v) {
     _p?.setBool('showTimer', v);
     AppSettings.showTimer = v;
-    _syncToCloud({'show_timer': v});
+    syncToCloud({'show_timer': v});
   }
 
   static bool get enableMs => _p?.getBool('enableMs') ?? false;
   static set enableMs(bool v) {
     _p?.setBool('enableMs', v);
     AppSettings.enableMs = v;
-    _syncToCloud({'enable_ms': v});
+    syncToCloud({'enable_ms': v});
   }
 
   static int get movesDisplay => _p?.getInt('movesDisplay') ?? 0;
   static set movesDisplay(int v) {
     _p?.setInt('movesDisplay', v);
     AppSettings.movesDisplay = v;
-    _syncToCloud({'moves_display': v});
+    syncToCloud({'moves_display': v});
   }
 
   static int get notifHour => _p?.getInt('notifHour') ?? 8;
@@ -347,7 +347,7 @@ if (data['avatar_path'] != null) {
   static void setNotifTime(TimeOfDay t) {
     _p?.setInt('notifHour', t.hour);
     _p?.setInt('notifMinute', t.minute);
-    _syncToCloud({
+    syncToCloud({
       'notif_hour': t.hour,
       'notif_minute': t.minute,
     });
@@ -388,7 +388,7 @@ if (data['avatar_path'] != null) {
     for (final k in fields) {
       await _p?.remove(k);
     }
-    _syncToCloud({
+    syncToCloud({
       'total_xp': 0,
       'total_flips': 0,
       'recent_pack': '',
@@ -445,7 +445,7 @@ if (data['avatar_path'] != null) {
     AppSettings.enableMs = false;
     AppSettings.movesDisplay = 0;
 
-    _syncToCloud({
+    syncToCloud({
       'show_timer': true,
       'enable_ms': false,
       'moves_display': 0,
