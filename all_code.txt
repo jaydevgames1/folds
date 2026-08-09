@@ -605,15 +605,39 @@ class AppStore {
     AppSettings.haptic = _p?.getBool('haptic') ?? true;
   }
 
-  // Sign out and drop straight back into a fresh, blank anonymous session —
-  // no leftover XP/progress from the account that just signed out.
   static Future<void> signOutToGuest() async {
     try {
       await Supabase.instance.client.auth.signOut();
-      await Supabase.instance.client.auth.signInAnonymously();
-      await downloadCloudProfile(); // pulls the NEW blank profile over the old cached one
     } catch (e) {
-      debugPrint('Sign out to guest failed: $e');
+      debugPrint('Sign out failed: $e');
+    }
+    // Anonymous auth may be disabled on the backend (it currently is) — don't
+    // depend on it succeeding. Either way, wipe every local trace of the
+    // signed-out account so the app genuinely starts blank.
+    try {
+      await Supabase.instance.client.auth.signInAnonymously();
+      if (currentUser != null) await downloadCloudProfile();
+    } catch (e) {
+      debugPrint('Anonymous sign-in unavailable — continuing as local-only guest: $e');
+    }
+    await wipeLocalProfileData();
+  }
+
+  /// Clears every locally-cached account field (username, XP, completed
+  /// puzzles, achievements, streak, mod/dev flags, avatar, etc.) without
+  /// touching device-only settings like theme or haptics.
+  static Future<void> wipeLocalProfileData() async {
+    const fields = [
+      'username', 'avatarPath', 'joinDate',
+      'totalXP', 'totalFlips', 'parStreak',
+      'completedPuzzles', 'failedPuzzles', 'parPuzzles', 'unlockedAchievements',
+      'unlockedTexturePacks', 'activeTexturePack',
+      'currentStreak', 'lastDailyDate',
+      'isModerator', 'isDevProfile', 'recentPack',
+      'notifHour', 'notifMinute',
+    ];
+    for (final k in fields) {
+      await _p?.remove(k);
     }
   }
 
@@ -1877,50 +1901,89 @@ class StartupSplashScreen extends StatefulWidget {
   State<StartupSplashScreen> createState() => StartupSplashScreenState();
 }
 
-class StartupSplashScreenState extends State<StartupSplashScreen> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl =
+class StartupSplashScreenState extends State<StartupSplashScreen> with TickerProviderStateMixin {
+  // Entrance (fades/scales the mark in)
+  late final AnimationController _entrance =
       AnimationController(duration: const Duration(milliseconds: 900), vsync: this)..forward();
+
+  // Continuous "alive" loop for the mark — runs for the whole 5s dwell.
+  late final AnimationController _loop =
+      AnimationController(duration: const Duration(milliseconds: 2200), vsync: this)..repeat(reverse: true);
 
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 1400), () {
+    // Shown only on a cold launch (FoldsApp decides that) — always the full
+    // 5 seconds so the brand actually registers, even if data loads instantly.
+    Future.delayed(const Duration(milliseconds: 5000), () {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(PageRouteBuilder(
         pageBuilder: (_, __, ___) => widget.next,
         transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-        transitionDuration: const Duration(milliseconds: 350),
+        transitionDuration: const Duration(milliseconds: 450),
       ));
     });
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() { _entrance.dispose(); _loop.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF2C2C2C),
+      backgroundColor: Colors.black,
       body: Center(
         child: AnimatedBuilder(
-          animation: _ctrl,
-          builder: (_, __) => Opacity(
-            opacity: Curves.easeOut.transform(_ctrl.value),
-            child: Transform.scale(
-              scale: 0.85 + 0.15 * Curves.easeOutBack.transform(_ctrl.value),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Image.asset('assets/jaydev_mark.png', width: 96, height: 96), // drop your mark here
-                const SizedBox(height: 18),
-                Text('JAYDEV GAMES', style: GoogleFonts.dmSans(
-                  fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 3)),
-              ]),
-            ),
-          ),
+          animation: Listenable.merge([_entrance, _loop]),
+          builder: (_, __) {
+            final entrance = Curves.easeOut.transform(_entrance.value);
+            // Slow breathing rotation + scale — reads as "alive" without a
+            // video/gif asset. Swap this whole builder for a Rive/Lottie
+            // widget later if you want a hand-authored animated mark; see
+            // note below.
+            final breathe = Curves.easeInOut.transform(_loop.value); // 0..1..0
+            final scale = (0.85 + 0.15 * Curves.easeOutBack.transform(entrance)) *
+                (1.0 + 0.04 * breathe);
+            final rotation = (breathe - 0.5) * 0.06; // gentle rock, ~±3.4°
+            return Opacity(
+              opacity: entrance,
+              child: Transform.rotate(
+                angle: rotation,
+                child: Transform.scale(
+                  scale: scale,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // TODO: swap Image.asset for a Rive/Lottie animation for a
+                      // real hand-authored motion mark (recommended over gif/mp4 —
+                      // both are heavier and Flutter has no native video-as-logo
+                      // widget without extra plugins + buffering). Packages:
+                      // `rive` (rive.app) or `lottie` (bodymovin/After Effects export).
+                      Container(
+                        width: 96, height: 96,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [BoxShadow(
+                            color: const Color(0xFFFFD465).withValues(alpha: 0.25 + 0.15 * breathe),
+                            blurRadius: 30, spreadRadius: 4)],
+                        ),
+                        child: Image.asset('assets/jaydev_mark.png', width: 96, height: 96),
+                      ),
+                      const SizedBox(height: 18),
+                      Text('JAYDEV GAMES', style: GoogleFonts.dmSans(
+                        fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 3)),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
-}-e \n\n// ===== FILE: lib/screens/gameplay_screen.dart =====
+}
+-e \n\n// ===== FILE: lib/screens/gameplay_screen.dart =====
 import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
@@ -1989,6 +2052,7 @@ class GameplayScreenState extends State<GameplayScreen> {
   bool _solved = false;
   bool _skipAnimation = false;
   bool _gameOver = false;
+  bool _hideXPOnComplete = false;
   Map<String, dynamic>? _lastResponse; // cache so Retry never needs a network round-trip
   String _requestedId = 'p1'; // what was actually asked for — used by the Not Found screen's Retry
 
@@ -2382,6 +2446,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
       } else if (_id.startsWith('r')) {
         AppStore.recentPack = 'RECTANGLE';
       }
+      _hideXPOnComplete = alreadyCompleted;
 
       if (_moves <= _par) _showConfetti();
       setState(() {
@@ -2736,17 +2801,24 @@ final cellSize = min(cellSizeW, cellSizeH);
                   moves: _moves,
                   par: _par,
                   earnedXP: _earnedXP,
+                  hideXP: _hideXPOnComplete,
                   cells: _cells,
                   skipAnimation: _skipAnimation,
                   isHoliday: FoldsTheme.isHolidayPuzzle(_id),
                   gridRows: _gridRows,
                   gridCols: _gridCols,
+                  
                   onRetry: () {
                     setState(() { _solved = false; _skipAnimation = false; });
                     _loadPuzzle(_id, forcePlay: true);
                     _resetTimer();
                   },
-                  onNext: _nextPuzzleId != null ? () {} : null,
+                  onNext: _nextPuzzleId != null ? () {
+                    final next = _nextPuzzleId!;
+                    setState(() { _solved = false; _skipAnimation = false; });
+                    _loadPuzzle(next);
+                    _resetTimer();
+                  } : null,
                 ),
               )),
             ),
@@ -2916,23 +2988,29 @@ final cellSize = min(cellSizeW, cellSizeH);
               ),
 
             if (_loaded && _gameOver)
-                    GameOverCrack(
-                      cells: _cells,
-                      gridRows: _gridRows,
-                      gridCols: _gridCols,
-                      moves: _moves,
-                      par: _par,
-                      isHoliday: FoldsTheme.isHolidayPuzzle(_id),
-                      onRetry: () {
-                        setState(() => _gameOver = false);
-                        _loadPuzzle(_id, forcePlay: true);
-                        _resetTimer();
-                      },
-                      onExit: () => pushFade(context, const PuzzlesMenuScreen())
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: MediaQuery.of(context).size.height * 0.09, // ~1/12–1/8 of screen
+                      ),
+                      child: GameOverCrack(
+                        cells: _cells,
+                        gridRows: _gridRows,
+                        gridCols: _gridCols,
+                        moves: _moves,
+                        par: _par,
+                        isHoliday: FoldsTheme.isHolidayPuzzle(_id),
+                        onRetry: () {
+                          setState(() => _gameOver = false);
+                          _loadPuzzle(_id, forcePlay: true);
+                          _resetTimer();
+                        },
+                        onExit: () => pushFade(context, const PuzzlesMenuScreen())
+                      ),
                     ),
 
+
             // ── Top bar (portrait only) ──────────────────────────────────────────
-            if (_gridCols <= _gridRows)
+            if (_gridCols <= _gridRows && !_gameOver)
               Positioned(
               top: 0, left: 0, right: 0,
               child: Padding(
@@ -3018,7 +3096,7 @@ final cellSize = min(cellSizeW, cellSizeH);
 
             // ── Moves bar ────────────────────────────────────────
             // ── Moves bar ────────────────────────────────────────
-            if (!_solved && _gridCols <= _gridRows) Positioned(
+            if (!_solved && _gridCols <= _gridRows && !_gameOver) Positioned(
               bottom: 24, left: 20, right: 20,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
@@ -3659,6 +3737,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:folds/screens/gameplay_screen.dart';
 import 'package:folds/state/app_store.dart';
+import 'package:folds/widgets/shared/folds_dialog.dart';
 
 class AccountManagementScreen extends StatelessWidget {
   const AccountManagementScreen({super.key});
@@ -3696,8 +3775,27 @@ class AccountManagementScreen extends StatelessWidget {
               const Spacer(),
               GestureDetector(
                 onTap: () async {
+                  // Blank the screen the instant the user taps — don't wait on
+                  // the network call, which is exactly what was going wrong.
+                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing Out...'),
+                      transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+                      transitionDuration: const Duration(milliseconds: 200),
+                    ),
+                    (route) => false,
+                  );
                   await AppStore.signOutToGuest();
-                  if (context.mounted) Navigator.pop(context);
+                  if (context.mounted) {
+                    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                      PageRouteBuilder(
+                        pageBuilder: (_, __, ___) => const GameplayScreen(),
+                        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+                        transitionDuration: const Duration(milliseconds: 350),
+                      ),
+                      (route) => false,
+                    );
+                  }
                 },
                 child: Container(
                   height: 50, decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(12)),
@@ -3707,33 +3805,19 @@ class AccountManagementScreen extends StatelessWidget {
               const SizedBox(height: 12),
               GestureDetector(
                 onTap: () async {
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      backgroundColor: Colors.white,
-                      title: Text('Delete Account?',
-                        style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 22, color: Colors.red)),
-                      content: Text(
-                        'This permanently deletes your account, all XP, progress, and purchases. This cannot be undone.',
-                        style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: Text('Cancel', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45)),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: Text('Delete Forever', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
-                        ),
-                      ],
-                    ),
-                  );
+                   bool confirmed = false;
+  await showFoldsDialog(context,
+    title: 'Delete Account?',
+    message: 'This permanently deletes your account, all XP, progress, and purchases. This cannot be undone.',
+    icon: Icons.warning_amber_rounded,
+    iconColor: Colors.red,
+    actions: [
+      FoldsDialogAction(label: 'Cancel', onTap: () {}),
+      FoldsDialogAction(label: 'Delete Forever', isPrimary: true, color: Colors.red,
+        onTap: () => confirmed = true),
+    ],
+  );
+  if (!confirmed || !context.mounted) return;
                   if (confirmed != true || !context.mounted) return;
 
                   try {
@@ -4741,6 +4825,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/painters/icon_painters.dart';
+import 'package:folds/widgets/shared/folds_dialog.dart';
+import 'package:folds/screens/gameplay_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -4829,13 +4915,44 @@ class AuthScreenState extends State<AuthScreen> {
       } else {
         final input = _emailController.text.trim();
         final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+
+        // Show the transition screen immediately, before the network calls —
+        // the person should never see their old guest data while this runs.
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
+              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+              transitionDuration: const Duration(milliseconds: 200),
+            ),
+            (route) => false,
+          );
+        }
+
+        // Drop whatever guest/anonymous session is active and forget its data
+        // before pulling down the real account.
+        try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
+        await AppStore.wipeLocalProfileData();
+
         await Supabase.instance.client.auth.signInWithPassword(
           email: email,
           password: _passwordController.text,
         );
         await AppStore.downloadCloudProfile();
-        if (mounted) Navigator.pop(context, true);
+
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => const GameplayScreen(),
+              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+              transitionDuration: const Duration(milliseconds: 350),
+            ),
+            (route) => false,
+          );
+        }
+        return; // transition already navigated away — skip the setState below
       }
+
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
@@ -6796,7 +6913,7 @@ import 'package:folds/widgets/badge_info_dialog.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEADERBOARD
+// LEADERBOARD — v2: podium + gradient header + staggered list entrance
 // ─────────────────────────────────────────────────────────────────────────────
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -6804,10 +6921,12 @@ class LeaderboardScreen extends StatefulWidget {
   State<LeaderboardScreen> createState() => LeaderboardScreenState();
 }
 
-class LeaderboardScreenState extends State<LeaderboardScreen> {
+class LeaderboardScreenState extends State<LeaderboardScreen> with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _entries = [];
   bool _loading = true;
   String? _error;
+  late final AnimationController _entrance =
+      AnimationController(duration: const Duration(milliseconds: 700), vsync: this);
 
   @override
   void initState() {
@@ -6815,175 +6934,307 @@ class LeaderboardScreenState extends State<LeaderboardScreen> {
     _load();
   }
 
+  @override
+  void dispose() { _entrance.dispose(); super.dispose(); }
+
   Future<void> _load() async {
-  try {
-    final data = await Supabase.instance.client
+    try {
+      final data = await Supabase.instance.client
           .from('profiles')
           .select('username, total_xp, avatar_path, is_moderator, is_dev_profile, mod_since')
           .order('total_xp', ascending: false)
           .limit(50);
-        
-    // Convert the database paths into actual functional bucket URLs
-    final parsedEntries = List<Map<String, dynamic>>.from(data).map((row) {
-      final rawPath = row['avatar_path'] as String?;
-      if (rawPath != null && rawPath.isNotEmpty && !rawPath.startsWith('http')) {
-        row['avatar_path'] = Supabase.instance.client.storage.from('avatars').getPublicUrl(rawPath);
-      }
-      return row;
-    }).toList();
 
-    setState(() {
-      _entries = parsedEntries;
-      _loading = false;
-    });
-  } catch (e) {
-    setState(() { _error = 'Could not load rankings.'; _loading = false; });
+      final parsedEntries = List<Map<String, dynamic>>.from(data).map((row) {
+        final rawPath = row['avatar_path'] as String?;
+        if (rawPath != null && rawPath.isNotEmpty && !rawPath.startsWith('http')) {
+          row['avatar_path'] = Supabase.instance.client.storage.from('avatars').getPublicUrl(rawPath);
+        }
+        return row;
+      }).toList();
+
+      setState(() {
+        _entries = parsedEntries;
+        _loading = false;
+      });
+      _entrance.forward(from: 0);
+    } catch (e) {
+      setState(() { _error = 'Could not load rankings.'; _loading = false; });
+    }
   }
-}
-
 
   @override
   Widget build(BuildContext context) {
-    final myId = AppStore.currentUser?.id;
     final myXP = AppStore.totalXP;
+    final top3 = _entries.take(3).toList();
+    final rest = _entries.length > 3 ? _entries.sublist(3) : <Map<String, dynamic>>[];
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Column(
-            children: [
-              FoldsTopBar(title: 'TOP FOLDERS', onBack: () => Navigator.pop(context)),
-              const SizedBox(height: 16),
-              // My rank card
-              if (AppStore.currentUser != null)
-                Builder(builder: (context) {
-                  final myPos = _entries.indexWhere(
-                    (e) => e['total_xp'] == myXP && e['username'] == AppStore.displayUsername);
-                  final rank = myPos >= 0 ? myPos + 1 : null;
-                  final shieldColor = XPSystem.shieldColor(XPSystem.rankFromXP(myXP));
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 14),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2C2C2C),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(children: [
-                      Stack(alignment: Alignment.center, children: [
-                        Icon(Icons.shield_rounded, color: shieldColor, size: 36),
-                        Text('${XPSystem.rankFromXP(myXP)}',
-                          style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
-                      ]),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('You', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
-                        Text('$myXP XP', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white54)),
-                      ])),
-                      if (rank != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: rank <= 3 ? const Color(0xFFFFD465) : Colors.white12,
-                            borderRadius: BorderRadius.circular(10)),
-                          child: Text('#$rank',
-                            style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800,
-                              color: rank <= 3 ? Colors.black : Colors.white)),
-                        ),
-                    ]),
-                  );
-                }),
-              // List
-              Expanded(
-                child: _loading
-                    ? const Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C), strokeWidth: 3))
-                    : _error != null
-                        ? Center(child: Text(_error!, style: GoogleFonts.dmSans(fontSize: 15, color: Colors.black38)))
-                        : RefreshIndicator(
-                            onRefresh: _load,
-                            color: const Color(0xFF2C2C2C),
-                            child: ListView.builder(
-                              padding: EdgeInsets.zero,
-                              itemCount: _entries.length,
-                              itemBuilder: (context, i) {
-                                final e = _entries[i];
-                                final rank = i + 1;
-                                final xp = (e['total_xp'] as int?) ?? 0;
-                                final username = e['username']?.toString() ?? 'Folder';
-                                final xpRank = XPSystem.rankFromXP(xp);
-                                final shieldColor = XPSystem.shieldColor(xpRank);
-                                final isTop3 = rank <= 3;
-                                final medals = ['🥇', '🥈', '🥉'];
-
-                                return GestureDetector(
-                                  onTap: () => showPublicProfile(context,
-                                    username: username,
-                                    xp: xp,
-                                    leaderboardRank: rank,
-                                  ),
-                                  child: Container(
-                                  margin: const EdgeInsets.only(bottom: 8),
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: isTop3 ? const Color(0xFF2C2C2C) : const Color(0xFFEFEFEF),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: rank == 1 ? Border.all(color: const Color(0xFFFFD465), width: 1.5) : null,
-                                  ),
-                                  child: Row(children: [
-                                    SizedBox(
-                                      width: 36,
-                                      child: isTop3
-                                          ? Text(medals[i], style: const TextStyle(fontSize: 22))
-                                          : Text('#$rank', style: GoogleFonts.dmSans(
-                                              fontSize: 14, fontWeight: FontWeight.w700,
-                                              color: Colors.black38)),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: FoldsTopBar(title: 'TOP FOLDERS', onBack: () => Navigator.pop(context)),
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C), strokeWidth: 3))
+                  : _error != null
+                      ? Center(child: Text(_error!, style: GoogleFonts.dmSans(fontSize: 15, color: Colors.black38)))
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          color: const Color(0xFF2C2C2C),
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: [
+                              if (top3.isNotEmpty) _PodiumHeader(top3: top3, entrance: _entrance),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                child: Column(children: [
+                                  if (AppStore.currentUser != null) _MyRankCard(myXP: myXP, entries: _entries),
+                                  for (int i = 0; i < rest.length; i++)
+                                    _AnimatedRow(
+                                      index: i,
+                                      entrance: _entrance,
+                                      child: _LeaderboardRow(entry: rest[i], rank: i + 4),
                                     ),
-                                    const SizedBox(width: 10),
-                                    Stack(alignment: Alignment.center, children: [
-                                      Icon(Icons.shield_rounded, color: shieldColor, size: 30),
-                                      Text('$xpRank',
-                                        style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
-                                    ]),
-                                    const SizedBox(width: 12),
-                                    Expanded(child: Row(children: [
-                                      Flexible(child: Text(username,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800,
-                                          color: isTop3 ? Colors.white : Colors.black))),
-                                      if ((e['is_dev_profile'] as bool?) == true || (e['is_moderator'] as bool?) == true) ...[
-                                        const SizedBox(width: 6),
-                                        GestureDetector(
-                                          onTap: () {
-                                            DateTime? ms;
-                                            final raw = e['mod_since'] as String?;
-                                            if (raw != null) { try { ms = DateTime.parse(raw); } catch (_) {} }
-                                            showBadgeInfoDialog(context,
-                                              username: username,
-                                              isDev: (e['is_dev_profile'] as bool?) ?? false,
-                                              modSince: ms);
-                                          },
-                                          child: Icon(
-                                            (e['is_dev_profile'] as bool?) == true ? Icons.code_rounded : Icons.shield_rounded,
-                                            size: 15,
-                                            color: (e['is_dev_profile'] as bool?) == true
-                                              ? const Color(0xFF5865F2) : const Color(0xFFFFD465)),
-                                        ),
-                                      ],
-                                    ])),
-                                    Text('$xp XP',
-                                      style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
-                                        color: isTop3 ? Colors.white54 : Colors.black38)),
-                                  ]),
-                                  ),
-                                );
-                              },
-                            ),
+                                  const SizedBox(height: 20),
+                                ]),
+                              ),
+                            ],
                           ),
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnimatedRow extends StatelessWidget {
+  final int index;
+  final Animation<double> entrance;
+  final Widget child;
+  const _AnimatedRow({required this.index, required this.entrance, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final start = (index * 0.03).clamp(0.0, 0.7);
+    final anim = CurvedAnimation(parent: entrance, curve: Interval(start, (start + 0.3).clamp(0.0, 1.0), curve: Curves.easeOut));
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, c) => Opacity(
+        opacity: anim.value,
+        child: Transform.translate(offset: Offset(0, 14 * (1 - anim.value)), child: c),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _MyRankCard extends StatelessWidget {
+  final int myXP;
+  final List<Map<String, dynamic>> entries;
+  const _MyRankCard({required this.myXP, required this.entries});
+
+  @override
+  Widget build(BuildContext context) {
+    final myPos = entries.indexWhere(
+      (e) => e['total_xp'] == myXP && e['username'] == AppStore.displayUsername);
+    final rank = myPos >= 0 ? myPos + 1 : null;
+    final shieldColor = XPSystem.shieldColor(XPSystem.rankFromXP(myXP));
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14, top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF2C2C2C), Color(0xFF1D1D1D)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(children: [
+        Stack(alignment: Alignment.center, children: [
+          Icon(Icons.shield_rounded, color: shieldColor, size: 36),
+          Text('${XPSystem.rankFromXP(myXP)}',
+            style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+        ]),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('You', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+          Text('$myXP XP', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white54)),
+        ])),
+        if (rank != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: rank <= 3 ? const Color(0xFFFFD465) : Colors.white12,
+              borderRadius: BorderRadius.circular(10)),
+            child: Text('#$rank',
+              style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800,
+                color: rank <= 3 ? Colors.black : Colors.white)),
+          ),
+      ]),
+    );
+  }
+}
+
+// ── Podium for #1 / #2 / #3, in a gradient hero header ─────────────────────
+class _PodiumHeader extends StatelessWidget {
+  final List<Map<String, dynamic>> top3;
+  final Animation<double> entrance;
+  const _PodiumHeader({required this.top3, required this.entrance});
+
+  Map<String, dynamic>? _at(int i) => i < top3.length ? top3[i] : null;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+      padding: const EdgeInsets.fromLTRB(16, 28, 16, 20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2C2C2C), Color(0xFF3A3A50)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _PodiumSlot(entry: _at(1), rank: 2, height: 108, entrance: entrance, delay: 0.06),
+          const SizedBox(width: 10),
+          _PodiumSlot(entry: _at(0), rank: 1, height: 138, entrance: entrance, delay: 0.0),
+          const SizedBox(width: 10),
+          _PodiumSlot(entry: _at(2), rank: 3, height: 86, entrance: entrance, delay: 0.12),
+        ],
+      ),
+    );
+  }
+}
+
+class _PodiumSlot extends StatelessWidget {
+  final Map<String, dynamic>? entry;
+  final int rank;
+  final double height;
+  final Animation<double> entrance;
+  final double delay;
+  const _PodiumSlot({required this.entry, required this.rank, required this.height, required this.entrance, required this.delay});
+
+  static const _colors = {1: Color(0xFFFFD465), 2: Color(0xFFD8D8D8), 3: Color(0xFFCF8A4E)};
+
+  @override
+  Widget build(BuildContext context) {
+    if (entry == null) return const SizedBox(width: 84);
+    final username = entry!['username']?.toString() ?? 'Folder';
+    final xp = (entry!['total_xp'] as int?) ?? 0;
+    final color = _colors[rank]!;
+    final anim = CurvedAnimation(parent: entrance, curve: Interval(delay, (delay + 0.5).clamp(0.0, 1.0), curve: Curves.easeOutBack));
+
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, child) => Transform.translate(
+        offset: Offset(0, 24 * (1 - anim.value.clamp(0.0, 1.0))),
+        child: Opacity(opacity: anim.value.clamp(0.0, 1.0), child: child),
+      ),
+      child: GestureDetector(
+        onTap: () => showPublicProfile(context, username: username, xp: xp, leaderboardRank: rank),
+        child: SizedBox(
+          width: 84,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.emoji_events_rounded, color: color, size: rank == 1 ? 30 : 22),
+              const SizedBox(height: 6),
+              Container(
+                width: rank == 1 ? 60 : 48, height: rank == 1 ? 60 : 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white10,
+                  border: Border.all(color: color, width: 2.5),
+                ),
+                child: const Icon(Icons.person_rounded, color: Colors.white38),
+              ),
+              const SizedBox(height: 8),
+              Text(username, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+              Text('$xp XP', style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white54)),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                height: height,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.18),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                  border: Border.all(color: color.withValues(alpha: 0.5), width: 1.5),
+                ),
+                child: Center(child: Text('$rank', style: GoogleFonts.dmSans(
+                  fontSize: 26, fontWeight: FontWeight.w800, color: color))),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _LeaderboardRow extends StatelessWidget {
+  final Map<String, dynamic> entry;
+  final int rank;
+  const _LeaderboardRow({required this.entry, required this.rank});
+
+  @override
+  Widget build(BuildContext context) {
+    final xp = (entry['total_xp'] as int?) ?? 0;
+    final username = entry['username']?.toString() ?? 'Folder';
+    final xpRank = XPSystem.rankFromXP(xp);
+    final shieldColor = XPSystem.shieldColor(xpRank);
+
+    return GestureDetector(
+      onTap: () => showPublicProfile(context, username: username, xp: xp, leaderboardRank: rank),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
+        child: Row(children: [
+          SizedBox(
+            width: 36,
+            child: Text('#$rank', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black38)),
+          ),
+          const SizedBox(width: 10),
+          Stack(alignment: Alignment.center, children: [
+            Icon(Icons.shield_rounded, color: shieldColor, size: 30),
+            Text('$xpRank', style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
+          ]),
+          const SizedBox(width: 12),
+          Expanded(child: Row(children: [
+            Flexible(child: Text(username, overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.black))),
+            if ((entry['is_dev_profile'] as bool?) == true || (entry['is_moderator'] as bool?) == true) ...[
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () {
+                  DateTime? ms;
+                  final raw = entry['mod_since'] as String?;
+                  if (raw != null) { try { ms = DateTime.parse(raw); } catch (_) {} }
+                  showBadgeInfoDialog(context,
+                    username: username,
+                    isDev: (entry['is_dev_profile'] as bool?) ?? false,
+                    modSince: ms);
+                },
+                child: Icon(
+                  (entry['is_dev_profile'] as bool?) == true ? Icons.code_rounded : Icons.shield_rounded,
+                  size: 15,
+                  color: (entry['is_dev_profile'] as bool?) == true
+                    ? const Color(0xFF5865F2) : const Color(0xFFFFD465)),
+              ),
+            ],
+          ])),
+          Text('$xp XP', style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black38)),
+        ]),
       ),
     );
   }
@@ -9590,6 +9841,172 @@ class TimeDisplay extends StatelessWidget {
     );
   }
 }
+-e \n\n// ===== FILE: lib/widgets/shared/folds_dialog.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+/// A single action button on a FoldsDialog.
+class FoldsDialogAction {
+  final String label;
+  final VoidCallback onTap;
+  final bool isPrimary;
+  final Color? color;
+  const FoldsDialogAction({
+    required this.label,
+    required this.onTap,
+    this.isPrimary = false,
+    this.color,
+  });
+}
+
+/// Drop-in replacement for showDialog(builder: (_) => AlertDialog(...)).
+/// Not a full-screen takeover, not a snackbar — a small, quiet centered card.
+///
+/// Usage:
+///   showFoldsDialog(context,
+///     title: 'Reset Progress?',
+///     message: 'This wipes all XP, completed puzzles, and rank.',
+///     icon: Icons.warning_amber_rounded,
+///     iconColor: Colors.red,
+///     actions: [
+///       FoldsDialogAction(label: 'Cancel', onTap: () {}),
+///       FoldsDialogAction(label: 'Reset', isPrimary: true, color: Colors.red,
+///         onTap: () { /* do the reset */ }),
+///     ],
+///   );
+Future<T?> showFoldsDialog<T>(
+  BuildContext context, {
+  required String title,
+  String? message,
+  Widget? content,
+  required List<FoldsDialogAction> actions,
+  IconData? icon,
+  Color? iconColor,
+  bool barrierDismissible = true,
+}) {
+  return showDialog<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    barrierColor: Colors.black.withValues(alpha: 0.35),
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 26, 22, 18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: (iconColor ?? const Color(0xFF2C2C2C)).withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: iconColor ?? const Color(0xFF2C2C2C), size: 26),
+              ),
+              const SizedBox(height: 14),
+            ],
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.black),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.4),
+              ),
+            ],
+            if (content != null) ...[
+              const SizedBox(height: 14),
+              content,
+            ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                for (final a in actions)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(right: a == actions.last ? 0 : 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          a.onTap();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          decoration: BoxDecoration(
+                            color: a.isPrimary ? (a.color ?? const Color(0xFF2C2C2C)) : const Color(0xFFEFEFEF),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Center(
+                            child: Text(
+                              a.label,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: a.isPrimary ? Colors.white : Colors.black54,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// A tiny full-screen transition shown while auth state is switching
+/// (signing in / signing out). Prevents the "flash of stale state" bug.
+class AuthTransitionScreen extends StatelessWidget {
+  final String message;
+  const AuthTransitionScreen({super.key, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(strokeWidth: 3, color: Color(0xFF2C2C2C)),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              message,
+              style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 -e \n\n// ===== FILE: lib/widgets/badge_info_dialog.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9800,6 +10217,9 @@ class FoldCompleteAnimator extends StatefulWidget {
   final bool isHoliday;
   final int gridRows;
   final int gridCols;
+  /// True when this puzzle was already completed before this solve —
+  /// no XP was actually awarded, so the XP stat/star is omitted entirely.
+  final bool hideXP;
 
   const FoldCompleteAnimator({
     super.key,
@@ -9820,19 +10240,21 @@ class FoldCompleteAnimator extends StatefulWidget {
     this.isHoliday = false,
     this.gridRows = 4,
     this.gridCols = 4,
+    this.hideXP = false,
   });
   @override
   State<FoldCompleteAnimator> createState() => FoldCompleteAnimatorState();
 }
 
 class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerProviderStateMixin {
+  // Stage 0: lift  |  Stage 1: fold in half  |  Stage 2: turn 90°  |  Stage 3: stamp  |  Stage 4: stats
   late final AnimationController _liftCtrl  = AnimationController(duration: const Duration(milliseconds: 260), vsync: this);
-  late final AnimationController _foldCtrl  = AnimationController(duration: const Duration(milliseconds: 520), vsync: this);
-  late final AnimationController _flyCtrl   = AnimationController(duration: const Duration(milliseconds: 1100), vsync: this);
-  late final AnimationController _stampCtrl = AnimationController(duration: const Duration(milliseconds: 750), vsync: this);
-  late final AnimationController _statsCtrl = AnimationController(duration: const Duration(milliseconds: 420), vsync: this);
+  late final AnimationController _foldCtrl  = AnimationController(duration: const Duration(milliseconds: 480), vsync: this);
+  late final AnimationController _turnCtrl  = AnimationController(duration: const Duration(milliseconds: 480), vsync: this);
+  late final AnimationController _stampCtrl = AnimationController(duration: const Duration(milliseconds: 700), vsync: this);
+  late final AnimationController _statsCtrl = AnimationController(duration: const Duration(milliseconds: 380), vsync: this);
 
-  int _stage = 0; // 0 lift, 1 fold, 2 fly, 3 stamp, 4 stats
+  int _stage = 0;
   bool get _isUnderPar => widget.moves <= widget.par;
 
   static const _grey = Color(0xFFE8E8E8);
@@ -9843,7 +10265,7 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
   void initState() {
     super.initState();
     if (widget.skipAnimation) {
-      _liftCtrl.value = _foldCtrl.value = _flyCtrl.value = _stampCtrl.value = 1;
+      _liftCtrl.value = _foldCtrl.value = _turnCtrl.value = _stampCtrl.value = 1;
       _stage = 4;
     }
     _run();
@@ -9851,26 +10273,26 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
 
   Future<void> _run() async {
     if (widget.skipAnimation) { await _statsCtrl.forward(); return; }
-    await Future.delayed(const Duration(milliseconds: 150));
+    await Future.delayed(const Duration(milliseconds: 120));
     await _liftCtrl.forward();  setState(() => _stage = 1);
     await _foldCtrl.forward();  setState(() => _stage = 2);
-    await _flyCtrl.forward();   setState(() => _stage = 3);
+    await _turnCtrl.forward();  setState(() => _stage = 3);
     await _stampCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 120));
+    await Future.delayed(const Duration(milliseconds: 100));
     setState(() => _stage = 4);
     await _statsCtrl.forward();
   }
 
   @override
   void dispose() {
-    _liftCtrl.dispose(); _foldCtrl.dispose(); _flyCtrl.dispose();
+    _liftCtrl.dispose(); _foldCtrl.dispose(); _turnCtrl.dispose();
     _stampCtrl.dispose(); _statsCtrl.dispose();
     super.dispose();
   }
 
   String get _shareText {
     final cleanTime = widget.timeDisplay.split('.').first;
-    return 'Folds\n#${widget.puzzleShareNumber} ${widget.puzzleTitle}\n$cleanTime ⏳, 0 💡, ${widget.moves}/${widget.par} ➡️\nhttps://folds.jaydev.games/puzzles/${widget.packPath}/${widget.puzzleShareNumber}';
+    return 'Folds\n#${widget.puzzleShareNumber} ${widget.puzzleTitle}\n$cleanTime, ${widget.moves}/${widget.par}\nhttps://folds.jaydev.games/puzzles/${widget.packPath}/${widget.puzzleShareNumber}';
   }
 
   @override
@@ -9881,7 +10303,8 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
     final foldedWidth = startWidth * rightCols / widget.gridCols;
     final finalWidth = math.min(widget.maxWidth - 24, 300.0);
     final finalHeight = finalWidth / 2; // fixed 2:1 landscape card
-    final stageHeight = math.max(startHeight, finalHeight) + 90;
+    // Tighter stage — stats now sit close to the card instead of far below it.
+    final stageHeight = math.max(startHeight, finalHeight) + 34;
     final panel = widget.isHoliday ? _greyHoliday : _grey;
     final card = widget.isHoliday ? _greyHoliday : _dark;
 
@@ -9894,12 +10317,12 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
             child: ClipRect(
               clipBehavior: Clip.none,
               child: OverflowBox(
-                maxWidth: widget.maxWidth * 3,
-                maxHeight: stageHeight * 3,
+                maxWidth: widget.maxWidth * 1.4,
+                maxHeight: stageHeight * 1.4,
                 child: AnimatedBuilder(
-                  animation: Listenable.merge([_liftCtrl, _foldCtrl, _flyCtrl, _stampCtrl]),
+                  animation: Listenable.merge([_liftCtrl, _foldCtrl, _turnCtrl, _stampCtrl]),
                   builder: (context, _) {
-                    // ── Stage 0: lift — grey panel only, rises up, fades in. No fold, no fly, no colour change.
+                    // ── Stage 0: lift — grey panel rises + fades in. No fold, no colour change.
                     if (_stage == 0) {
                       final lift = Curves.easeOut.transform(_liftCtrl.value) * 18;
                       return Transform.translate(
@@ -9911,7 +10334,7 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
                         ),
                       );
                     }
-                    // ── Stage 1: fold — grey book-fold in place. Zero tiles, zero colour change, zero flying.
+                    // ── Stage 1: fold — grey book-fold in place. Still grey, still in place.
                     if (_stage == 1) {
                       final t = Curves.easeInCubic.transform(_foldCtrl.value);
                       return Transform.translate(
@@ -9930,30 +10353,26 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
                         ),
                       );
                     }
-                    // ── Stage 2/3: fly off-screen right, parabolic arc back to the left, land centre.
-                    // Colour only darkens in the final 15% of the flight — a clear "landing" beat,
-                    // not a gradual drift while still airborne.
-                    final ft = _flyCtrl.value.clamp(0.0, 1.0);
-                    final eased = Curves.easeInOutCubic.transform(ft);
-
-                    // dx: parabola in t, peaking off-screen to the right at t=0.5
-                    final maxDX = widget.maxWidth * 0.95 + foldedWidth;
-                    final dx = maxDX * 4 * ft * (1 - ft);
-                    // dy: rises up while out, settles back down on landing (sideways-parabola feel)
-                    final maxDY = stageHeight * 0.55;
-                    final dy = -maxDY * math.sin(math.pi * ft);
-                    // shrink while far away, grow back on the way down
-                    final scale = 1 - 0.55 * math.sin(math.pi * ft);
+                    // ── Stage 2/3: no flying anywhere — the folded panel just spins
+                    // 90° in place (around its own centre) while it morphs into the
+                    // final landscape card size and darkens to its solved colour.
+                    final tt = _turnCtrl.value.clamp(0.0, 1.0);
+                    final eased = Curves.easeInOutCubic.transform(tt);
+                    final angle = eased * (math.pi / 2); // quarter turn, once
 
                     final w = lerpDouble(foldedWidth, finalWidth, eased)!;
                     final h = lerpDouble(startHeight, finalHeight, eased)!;
-                    final colorT = ((ft - 0.85) / 0.15).clamp(0.0, 1.0);
+                    final colorT = ((tt - 0.6) / 0.4).clamp(0.0, 1.0);
                     final color = Color.lerp(panel, card, colorT)!;
 
                     return Transform.translate(
-                      offset: Offset(dx, dy - 18),
-                      child: Transform.scale(
-                        scale: scale.clamp(0.3, 1.0),
+                      offset: const Offset(0, -18),
+                      child: Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.identity()
+                          ..setEntry(3, 2, 0.0009)
+                          ..rotateZ(angle * 0.001) // negligible — kept for a subtle wobble
+                          ..rotateY(angle),
                         child: Container(
                           width: w, height: h,
                           decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(18),
@@ -9977,12 +10396,13 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
           AnimatedBuilder(
             animation: _statsCtrl,
             builder: (_, child) => Opacity(opacity: _statsCtrl.value,
-              child: Transform.translate(offset: Offset(0, 14 * (1 - _statsCtrl.value)), child: child)),
+              child: Transform.translate(offset: Offset(0, 10 * (1 - _statsCtrl.value)), child: child)),
             child: StatsCard(
               timeDisplay: widget.timeDisplay,
               moves: widget.moves,
               par: widget.par,
               earnedXP: widget.earnedXP,
+              hideXP: widget.hideXP,
               isUnderPar: _isUnderPar,
               shareText: _shareText,
               onRetry: widget.onRetry,
@@ -10059,8 +10479,8 @@ class StampWidgetState extends State<StampWidget> with SingleTickerProviderState
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(widget.isGold ? '★' : '✦',
-                    style: TextStyle(fontSize: 24, color: widget.isGold ? Colors.black : Colors.white)),
+                  Icon(widget.isGold ? Icons.star_rounded : Icons.check_rounded,
+                    size: 24, color: widget.isGold ? Colors.black : Colors.white),
                   Text(widget.isGold ? 'PAR' : 'SOLVED',
                     style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w800,
                       color: widget.isGold ? Colors.black : Colors.white, letterSpacing: 1)),
@@ -10084,6 +10504,7 @@ class StatsCard extends StatelessWidget {
   final VoidCallback onRetry;
   final VoidCallback? onNext;
   final int earnedXP;
+  final bool hideXP;
 
   const StatsCard({
     required this.timeDisplay,
@@ -10094,6 +10515,7 @@ class StatsCard extends StatelessWidget {
     required this.onRetry,
     this.onNext,
     required this.earnedXP,
+    this.hideXP = false,
   });
 
   @override
@@ -10112,14 +10534,14 @@ class StatsCard extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                StatItem(emoji: '⏳', value: timeDisplay),
-                StatItem(emoji: '💡', value: '0'),
-                StatItem(emoji: '➡️', value: '$moves/$par'),
-                XPCountUp(target: earnedXP),
+                StatItem(icon: Icons.timer_outlined, value: timeDisplay),
+                StatItem(icon: Icons.lightbulb_outline_rounded, value: '0'),
+                StatItem(icon: Icons.arrow_forward_rounded, value: '$moves/$par'),
+                if (!hideXP) XPCountUp(target: earnedXP),
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Builder(
             builder: (context) {
               return GestureDetector(
@@ -10133,7 +10555,14 @@ class StatsCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
                   child: Center(
-                    child: Text('Share Fold', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.ios_share_rounded, color: Colors.white, size: 17),
+                        const SizedBox(width: 8),
+                        Text('Share Fold', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -10180,7 +10609,16 @@ class StatsCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
-                      child: Center(child: Text('Next →', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white))),
+                      child: Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Next', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 16),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -10194,15 +10632,15 @@ class StatsCard extends StatelessWidget {
 }
 
 class StatItem extends StatelessWidget {
-  final String emoji;
+  final IconData icon;
   final String value;
-  const StatItem({required this.emoji, required this.value});
+  const StatItem({required this.icon, required this.value});
   @override
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(emoji, style: const TextStyle(fontSize: 20)),
+        Icon(icon, size: 20, color: Colors.black54),
         const SizedBox(height: 4),
         Text(value, style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
       ],
@@ -10239,14 +10677,15 @@ class XPCountUpState extends State<XPCountUp> with SingleTickerProviderStateMixi
       builder: (_, __) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('⭐', style: TextStyle(fontSize: 20)),
+          const Icon(Icons.star_rounded, size: 20, color: Color(0xFFFFD465)),
           const SizedBox(height: 4),
           Text('+${_anim.value} XP', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black)),
         ],
       ),
     );
   }
-}-e \n\n// ===== FILE: lib/widgets/gameplay/game_over_crack.dart =====
+}
+-e \n\n// ===== FILE: lib/widgets/gameplay/game_over_crack.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:math';
