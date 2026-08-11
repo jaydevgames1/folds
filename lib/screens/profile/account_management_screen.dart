@@ -42,8 +42,8 @@ class AccountManagementScreen extends StatelessWidget {
               GestureDetector(
                 onTap: () async {
                   // Blank the screen the instant the user taps — don't wait on
-                  // the network call, which is exactly what was going wrong.
-                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                  final rootNavigator = Navigator.of(context, rootNavigator: true);
+                  rootNavigator.pushAndRemoveUntil(
                     PageRouteBuilder(
                       pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing Out...'),
                       transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
@@ -51,9 +51,9 @@ class AccountManagementScreen extends StatelessWidget {
                     ),
                     (route) => false,
                   );
-                  await AppStore.signOutToGuest();
-                  if (context.mounted) {
-                    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                  try { await AppStore.signOutToGuest(); } catch (_) {}
+                 
+                    rootNavigator.pushAndRemoveUntil(
                       PageRouteBuilder(
                         pageBuilder: (_, __, ___) => const GameplayScreen(),
                         transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
@@ -61,7 +61,7 @@ class AccountManagementScreen extends StatelessWidget {
                       ),
                       (route) => false,
                     );
-                  }
+                  
                 },
                 child: Container(
                   height: 50, decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(12)),

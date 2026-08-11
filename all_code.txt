@@ -1,5 +1,19 @@
--e \n\n// ===== FILE: lib/core/constants.dart =====
-
+-e \n\n// ===== FILE: lib/core/constants.example.dart =====
+const String kDevPassword = "DEV_PASSWORD";
+const String kModPassword = "MODERATOR_PASSWORD";
+final DateTime kFoldsLaunchDate = DateTime(2026, 11, 1);
+int foldsDayNumberFor(DateTime date) {
+  final clean = DateTime(date.year, date.month, date.day);
+  final diff = clean.difference(kFoldsLaunchDate).inDays;
+  return diff >= 0 ? diff + 1 : diff;
+}-e \n\n// ===== FILE: lib/core/constants.dart =====
+const String kDevPassword = 'ilovefoldy';
+const String kModPassword = 'foldsmoderator245!';
+final DateTime kFoldsLaunchDate = DateTime(2026, 11, 1);
+int foldsDayNumberFor(DateTime date) {
+  final clean = DateTime(date.year, date.month, date.day);
+  final diff = clean.difference(kFoldsLaunchDate).inDays;
+  return diff >= 0 ? diff + 1 : diff;
 }-e \n\n// ===== FILE: lib/painters/store_shape_painters.dart =====
 import 'package:flutter/material.dart';
 import 'dart:math';
@@ -10211,8 +10225,6 @@ class FoldCompleteAnimator extends StatefulWidget {
   final bool isHoliday;
   final int gridRows;
   final int gridCols;
-  /// True when this puzzle was already completed before this solve —
-  /// no XP was actually awarded, so the XP stat/star is omitted entirely.
   final bool hideXP;
 
   const FoldCompleteAnimator({
@@ -10241,7 +10253,7 @@ class FoldCompleteAnimator extends StatefulWidget {
 }
 
 class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerProviderStateMixin {
-  // Stage 0: lift  |  Stage 1: fold in half  |  Stage 2: turn 90°  |  Stage 3: stamp  |  Stage 4: stats
+  // Stage 0: lift  |  Stage 1: fold in half  |  Stage 2: turn 90° (flat spin)  |  Stage 3: stamp  |  Stage 4: stats
   late final AnimationController _liftCtrl  = AnimationController(duration: const Duration(milliseconds: 260), vsync: this);
   late final AnimationController _foldCtrl  = AnimationController(duration: const Duration(milliseconds: 480), vsync: this);
   late final AnimationController _turnCtrl  = AnimationController(duration: const Duration(milliseconds: 480), vsync: this);
@@ -10268,11 +10280,13 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
   Future<void> _run() async {
     if (widget.skipAnimation) { await _statsCtrl.forward(); return; }
     await Future.delayed(const Duration(milliseconds: 120));
-    await _liftCtrl.forward();  setState(() => _stage = 1);
-    await _foldCtrl.forward();  setState(() => _stage = 2);
-    await _turnCtrl.forward();  setState(() => _stage = 3);
+    if (!mounted) return;
+    await _liftCtrl.forward();  if (!mounted) return; setState(() => _stage = 1);
+    await _foldCtrl.forward();  if (!mounted) return; setState(() => _stage = 2);
+    await _turnCtrl.forward();  if (!mounted) return; setState(() => _stage = 3);
     await _stampCtrl.forward();
     await Future.delayed(const Duration(milliseconds: 100));
+    if (!mounted) return;
     setState(() => _stage = 4);
     await _statsCtrl.forward();
   }
@@ -10297,7 +10311,6 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
     final foldedWidth = startWidth * rightCols / widget.gridCols;
     final finalWidth = math.min(widget.maxWidth - 24, 300.0);
     final finalHeight = finalWidth / 2; // fixed 2:1 landscape card
-    // Tighter stage — stats now sit close to the card instead of far below it.
     final stageHeight = math.max(startHeight, finalHeight) + 34;
     final panel = widget.isHoliday ? _greyHoliday : _grey;
     final card = widget.isHoliday ? _greyHoliday : _dark;
@@ -10316,7 +10329,7 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
                 child: AnimatedBuilder(
                   animation: Listenable.merge([_liftCtrl, _foldCtrl, _turnCtrl, _stampCtrl]),
                   builder: (context, _) {
-                    // ── Stage 0: lift — grey panel rises + fades in. No fold, no colour change.
+                    // ── Stage 0: lift — grey panel rises + fades in.
                     if (_stage == 0) {
                       final lift = Curves.easeOut.transform(_liftCtrl.value) * 18;
                       return Transform.translate(
@@ -10328,7 +10341,7 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
                         ),
                       );
                     }
-                    // ── Stage 1: fold — grey book-fold in place. Still grey, still in place.
+                    // ── Stage 1: fold — grey book-fold in place.
                     if (_stage == 1) {
                       final t = Curves.easeInCubic.transform(_foldCtrl.value);
                       return Transform.translate(
@@ -10347,12 +10360,11 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
                         ),
                       );
                     }
-                    // ── Stage 2/3: no flying anywhere — the folded panel just spins
-                    // 90° in place (around its own centre) while it morphs into the
-                    // final landscape card size and darkens to its solved colour.
+                    // ── Stage 2/3: FLAT (Z-axis) spin — never edge-on, never vanishes.
+                    // Also morphs size portrait→landscape and darkens to the solved colour.
                     final tt = _turnCtrl.value.clamp(0.0, 1.0);
                     final eased = Curves.easeInOutCubic.transform(tt);
-                    final angle = eased * (math.pi / 2); // quarter turn, once
+                    final angle = eased * (math.pi / 2); // quarter turn, flat in the screen plane
 
                     final w = lerpDouble(foldedWidth, finalWidth, eased)!;
                     final h = lerpDouble(startHeight, finalHeight, eased)!;
@@ -10361,20 +10373,19 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
 
                     return Transform.translate(
                       offset: const Offset(0, -18),
-                      child: Transform(
-                        alignment: Alignment.center,
-                        transform: Matrix4.identity()
-                          ..setEntry(3, 2, 0.0009)
-                          ..rotateZ(angle * 0.001) // negligible — kept for a subtle wobble
-                          ..rotateY(angle),
+                      child: Transform.rotate(
+                        angle: angle, // Z-axis — a flat, in-plane spin
                         child: Container(
                           width: w, height: h,
                           decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(18),
                             boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 16, offset: const Offset(0, 8))]),
                           child: _stage >= 3 ? Center(
-                            child: Transform.scale(
-                              scale: Curves.elasticOut.transform(_stampCtrl.value).clamp(0.0, 10.0),
-                              child: StampWidget(isGold: _isUnderPar),
+                            child: Transform.rotate(
+                              angle: -angle, // counter-rotate the stamp so it stays upright
+                              child: Transform.scale(
+                                scale: Curves.elasticOut.transform(_stampCtrl.value).clamp(0.0, 10.0),
+                                child: StampWidget(isGold: _isUnderPar),
+                              ),
                             ),
                           ) : null,
                         ),
@@ -10678,8 +10689,7 @@ class XPCountUpState extends State<XPCountUp> with SingleTickerProviderStateMixi
       ),
     );
   }
-}
--e \n\n// ===== FILE: lib/widgets/gameplay/game_over_crack.dart =====
+}-e \n\n// ===== FILE: lib/widgets/gameplay/game_over_crack.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:math';

@@ -228,6 +228,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
       await _applyPuzzleData(response);
     } catch (e) {
       debugPrint('❌ Supabase error: $e');
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _notFound = true;
@@ -532,7 +533,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
                         style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black),
                         maxLines: 2, overflow: TextOverflow.ellipsis),
                     ),
-                    Text('by $_author',
+                    Text('$_author',
                       style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w400, color: Colors.black54)),
                     const Spacer(),
                     Text('Difficulty:', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
@@ -1024,7 +1025,7 @@ final cellSize = min(cellSizeW, cellSizeH);
 
 
             // ── Top bar (portrait only) ──────────────────────────────────────────
-            if (_gridCols <= _gridRows && !_gameOver)
+            if (_gridCols <= _gridRows)
               Positioned(
               top: 0, left: 0, right: 0,
               child: Padding(
@@ -1047,7 +1048,7 @@ final cellSize = min(cellSizeW, cellSizeH);
                           opacity: AppSettings.showTimer ? 1.0 : 0.0,
                           child: Text(_timeDisplay, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.black)),
                         ),
-                        if (_solved)
+                        if (_solved && !_gameOver)
                           const SizedBox(width: 40, height: 40)
                         else
                           GestureDetector(
@@ -1072,7 +1073,7 @@ final cellSize = min(cellSizeW, cellSizeH);
                           ),
                       ],
                     ),
-                    if (!_solved) ...[
+                    if (!_solved || _gameOver) ...[
                       const SizedBox(height: 24),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1110,7 +1111,7 @@ final cellSize = min(cellSizeW, cellSizeH);
 
             // ── Moves bar ────────────────────────────────────────
             // ── Moves bar ────────────────────────────────────────
-            if (!_solved && _gridCols <= _gridRows && !_gameOver) Positioned(
+            if (!_solved && _gridCols <= _gridRows ) Positioned(
               bottom: 24, left: 20, right: 20,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),

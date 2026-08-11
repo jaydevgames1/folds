@@ -7,12 +7,24 @@ import 'package:folds/widgets/shared/folds_dialog.dart';
 import 'package:folds/screens/gameplay_screen.dart';
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final String? errorMessage;
+  const AuthScreen({super.key, this.errorMessage});
   @override
   State<AuthScreen> createState() => AuthScreenState();
 }
 
 class AuthScreenState extends State<AuthScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.errorMessage != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(widget.errorMessage!)));
+        }
+      });
+    }
+  }
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _usernameController = TextEditingController();
@@ -90,46 +102,53 @@ class AuthScreenState extends State<AuthScreen> {
             content: Text('Welcome to the Fold! You\'re signed in.')));
           Navigator.pop(context, true);
         }
-      } else {
-        final input = _emailController.text.trim();
-        final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+      // _authenticate()'s sign-in (else) branch — replace entirely with:
+} else {
+  final rootNavigator = Navigator.of(context, rootNavigator: true);
+  final input = _emailController.text.trim();
+  try {
+    final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
 
-        // Show the transition screen immediately, before the network calls —
-        // the person should never see their old guest data while this runs.
-        if (mounted) {
-          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-            PageRouteBuilder(
-              pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
-              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-              transitionDuration: const Duration(milliseconds: 200),
-            ),
-            (route) => false,
-          );
-        }
+    rootNavigator.pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 200),
+      ),
+      (route) => false,
+    );
 
-        // Drop whatever guest/anonymous session is active and forget its data
-        // before pulling down the real account.
-        try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
-        await AppStore.wipeLocalProfileData();
+    try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
+    await AppStore.wipeLocalProfileData();
 
-        await Supabase.instance.client.auth.signInWithPassword(
-          email: email,
-          password: _passwordController.text,
-        );
-        await AppStore.downloadCloudProfile();
+    await Supabase.instance.client.auth.signInWithPassword(
+      email: email,
+      password: _passwordController.text,
+    );
+    await AppStore.downloadCloudProfile();
 
-        if (mounted) {
-          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-            PageRouteBuilder(
-              pageBuilder: (_, __, ___) => const GameplayScreen(),
-              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-              transitionDuration: const Duration(milliseconds: 350),
-            ),
-            (route) => false,
-          );
-        }
-        return; // transition already navigated away — skip the setState below
-      }
+    rootNavigator.pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const GameplayScreen(),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 350),
+      ),
+      (route) => false,
+    );
+  } catch (e) {
+    // The old AuthScreen context is gone by now, so we can't snackbar on it —
+    // bounce to a fresh AuthScreen that shows the error instead of hanging.
+    rootNavigator.pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => AuthScreen(errorMessage: e.toString()),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 200),
+      ),
+      (route) => false,
+    );
+  }
+  return;
+}
 
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));

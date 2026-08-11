@@ -162,7 +162,7 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
                     // Also morphs size portrait→landscape and darkens to the solved colour.
                     final tt = _turnCtrl.value.clamp(0.0, 1.0);
                     final eased = Curves.easeInOutCubic.transform(tt);
-                    final angle = eased * (math.pi / 2); // quarter turn, flat in the screen plane
+                    final angle = math.sin(eased * math.pi) * (math.pi / 5);// quarter turn, flat in the screen plane
 
                     final w = lerpDouble(foldedWidth, finalWidth, eased)!;
                     final h = lerpDouble(startHeight, finalHeight, eased)!;
