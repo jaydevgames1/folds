@@ -257,16 +257,20 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     }
 
     if (!resetOnly) {
-      if (gridCols > gridRows) {
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
-        ]);
-      } else {
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
-        ]);
-      }
-    }
+  if (gridCols > gridRows) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
+    ]);
+    // Let the physical rotation animation finish before the grid renders —
+    // otherwise it briefly lays out against the old (portrait) constraints
+    // and throws an overflow error the user can see.
+    await Future.delayed(const Duration(milliseconds: 350));
+  } else {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
+    ]);
+  }
+}
 
     setState(() {
       _cells = List<bool>.from(rawCells); // fresh copy every time — never re-uses the failed board
@@ -383,92 +387,93 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
       return;
     }
     
+    Future<void> _completePuzzle() async {
+  _stopwatch.stop();
+  _timer.cancel();
+  if (AppSettings.haptic) HapticFeedback.heavyImpact();
+  AudioService.solve();
+
+  void tryUnlock(String id) {
+    if (!AppStore.isUnlocked(id)) {
+      AppStore.unlockAchievement(id); // instant local flag for the toast
+      _showAchievementToast(id);
+      Supabase.instance.client.rpc('unlock_achievement', params: {'p_id': id})
+          .catchError((e) => debugPrint('achievement sync failed: $e'));
+    }
+  }
+
+  final alreadyCompleted = AppStore.isCompleted(_id);
+  final hasFailedBefore = AppStore.hasFailed(_id);
+
+  int awardedXP = 0;
+  try {
+    final result = await Supabase.instance.client
+        .rpc('complete_puzzle', params: {'p_puzzle_id': _id, 'p_moves': _moves});
+    awardedXP = (result?['awarded_xp'] as int?) ?? 0;
+    await AppStore.downloadCloudProfile(); // pulls the authoritative XP/streak back down
+  } catch (e) {
+    debugPrint('complete_puzzle RPC failed: $e');
+    AppStore.markCompleted(_id);
+    if (_moves <= _par) AppStore.markParCompleted(_id);
+    if (_moves > _par * 2) AppStore.markFailed(_id);
+  }
+
+  tryUnlock('first_fold');
+  if (_gridRows == 6 && _gridCols == 6) tryUnlock('grid_master');
+  if (_moves == _par) tryUnlock('flawless');
+  if (_moves == _par + 1) tryUnlock('one_more');
+  if (_stopwatch.elapsedMilliseconds < 15000) tryUnlock('speed_demon');
+  if (AppStore.totalFlips >= 100) tryUnlock('flippin_crazy');
+  if (AppStore.totalFlips >= 250) tryUnlock('flipaholic');
+  if (AppStore.totalFlips >= 500) tryUnlock('addicted_to_flipping');
+  if (AppStore.totalFlips >= 1000) tryUnlock('flip_god');
+  AppStore.incrementTodayCount();
+  if (AppStore.todayCompletedCount >= 10) tryUnlock('folding_frenzy');
+
+  final nowSolving = DateTime.now();
+  if (nowSolving.hour >= 2 && nowSolving.hour < 4) tryUnlock('night_owl');
+  if (_id.startsWith('d') && nowSolving.hour < 6) tryUnlock('early_bird');
+  if (hasFailedBefore && _moves <= _par) tryUnlock('comeback_kid');
+  if (foldsDayNumberFor(nowSolving) < 1) tryUnlock('beta_tester');
+
+  if (_moves <= _par) {
+    AppStore.parStreak = AppStore.parStreak + 1;
+    if (AppStore.parStreak >= 10) tryUnlock('perfectionist');
+  } else {
+    AppStore.parStreak = 0;
+  }
+
+  final totalCompleted = AppStore.puzzlesCompleted + AppStore.dailiesCompleted;
+  if (totalCompleted >= 10) tryUnlock('novice_folder');
+  if (totalCompleted >= 50) tryUnlock('adept_folder');
+  if (totalCompleted >= 150) tryUnlock('expert_folder');
+  if (totalCompleted >= 300) tryUnlock('master_folder');
+
+  final parCount = AppStore.parPuzzles.length;
+  if (parCount >= 10) tryUnlock('par_10');
+  if (parCount >= 50) tryUnlock('par_50');
+  if (parCount >= 150) tryUnlock('par_150');
+
+  final streak = AppStore.currentStreak;
+  if (streak >= 7) tryUnlock('streak_7');
+  if (streak >= 30) tryUnlock('streak_30');
+  if (streak >= 100) tryUnlock('streak_100');
+  if (streak >= 365) tryUnlock('streak_365');
+
+  if (_id.startsWith('p')) AppStore.recentPack = 'PILOT';
+  if (_id.startsWith('r')) AppStore.recentPack = 'RECTANGLE';
+  _hideXPOnComplete = alreadyCompleted;
+
+  if (_moves <= _par) _showConfetti();
+  if (!mounted) return;
+  setState(() { _solved = true; _earnedXP = awardedXP; });
+}
 
     if (_isSymmetrical()) {
-      _stopwatch.stop();
-      _timer.cancel();
-      final hasFailed = AppStore.hasFailed(_id);
-      final xp = XPSystem.calculate(
-        difficulty: _difficulty,
-        moves: _moves,
-        par: _par,
-        hasFailed: hasFailed,
-      );
-      if (AppSettings.haptic) HapticFeedback.heavyImpact();
-      AudioService.solve();
-
-      void tryUnlock(String id) {
-        if (!AppStore.isUnlocked(id)) {
-          AppStore.unlockAchievement(id);
-          _showAchievementToast(id);
-        }
-      }
-      tryUnlock('first_fold');
-      if (_gridRows == 6 && _gridCols == 6) tryUnlock('grid_master');
-      if (_moves == _par) tryUnlock('flawless');
-      if (_moves == _par + 1) tryUnlock('one_more');
-      if (_stopwatch.elapsedMilliseconds < 15000) tryUnlock('speed_demon');
-      if (AppStore.totalFlips >= 100) tryUnlock('flippin_crazy');
-      if (AppStore.totalFlips >= 250) tryUnlock('flipaholic');
-      if (AppStore.totalFlips >= 500) tryUnlock('addicted_to_flipping');
-      if (AppStore.totalFlips >= 1000) tryUnlock('flip_god');
-      AppStore.incrementTodayCount();
-      if (AppStore.todayCompletedCount >= 10) tryUnlock('folding_frenzy');
-
-      final nowSolving = DateTime.now();
-      if (nowSolving.hour >= 2 && nowSolving.hour < 4) tryUnlock('night_owl');
-      if (_id.startsWith('d') && nowSolving.hour < 6) tryUnlock('early_bird');
-      if (hasFailed && _moves <= _par) tryUnlock('comeback_kid');
-      if (foldsDayNumberFor(nowSolving) < 1) tryUnlock('beta_tester');
-
-      if (_moves <= _par) {
-        AppStore.parStreak = AppStore.parStreak + 1;
-        if (AppStore.parStreak >= 10) tryUnlock('perfectionist');
-      } else {
-        AppStore.parStreak = 0;
-      }
-
-      final alreadyCompleted = AppStore.isCompleted(_id);
-      int awardedXP = 0;
-      if (!alreadyCompleted) {
-        if (_moves > _par * 2) AppStore.markFailed(_id);
-        awardedXP = xp;
-        AppStore.totalXP = AppStore.totalXP + awardedXP;
-      }
-      if (_moves <= _par) AppStore.markParCompleted(_id);
-      AppStore.markCompleted(_id);
-
-      final totalCompleted = AppStore.puzzlesCompleted + AppStore.dailiesCompleted;
-      if (totalCompleted >= 10) tryUnlock('novice_folder');
-      if (totalCompleted >= 50) tryUnlock('adept_folder');
-      if (totalCompleted >= 150) tryUnlock('expert_folder');
-      if (totalCompleted >= 300) tryUnlock('master_folder');
-
-      final parCount = AppStore.parPuzzles.length;
-      if (parCount >= 10) tryUnlock('par_10');
-      if (parCount >= 50) tryUnlock('par_50');
-      if (parCount >= 150) tryUnlock('par_150');
-
-      if (_id.startsWith('d')) {
-        if (!alreadyCompleted) AppStore.updateStreak();
-        final streak = AppStore.currentStreak;
-        if (streak >= 7) tryUnlock('streak_7');
-        if (streak >= 30) tryUnlock('streak_30');
-        if (streak >= 100) tryUnlock('streak_100');
-        if (streak >= 365) tryUnlock('streak_365');
-      } else if (_id.startsWith('p')) {
-        AppStore.recentPack = 'PILOT';
-      } else if (_id.startsWith('r')) {
-        AppStore.recentPack = 'RECTANGLE';
-      }
-      _hideXPOnComplete = alreadyCompleted;
-
-      if (_moves <= _par) _showConfetti();
-      setState(() {
-        _solved = true;
-        _earnedXP = awardedXP;
-      });
+      _completePuzzle();
     }
+
+    
   }
 
   Widget _buildLandscapeLayout(BuildContext context) {
@@ -585,8 +590,11 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(8),
-                child: Center(
-                  child: Container(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Center(
+                      child: Container(
                     color: FoldsTheme.gridBg(_id),
                     padding: const EdgeInsets.all(10),
                     child: LayoutBuilder(
@@ -627,12 +635,8 @@ final cellSize = min(cellSizeW, cellSizeH);
                         );
                       },
                     ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+                      ),
+                    ),
         // Pause overlay
         if (_paused)
   Positioned.fill(
@@ -646,11 +650,11 @@ final cellSize = min(cellSizeW, cellSizeH);
             Text('PAUSED', style: GoogleFonts.dmSans(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 4)),
             const SizedBox(height: 6),
             Text(_puzzleDisplayTitle, style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black38, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             GestureDetector(
               onTap: () { setState(() => _paused = false); _stopwatch.start(); _startTimer(); },
               child: Container(
-                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
                 child: Center(child: Text('RESUME', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1))),
               ),
@@ -659,7 +663,7 @@ final cellSize = min(cellSizeW, cellSizeH);
             GestureDetector(
               onTap: () { setState(() => _paused = false); _loadPuzzle(_id, forcePlay: true); _resetTimer(); },
               child: Container(
-                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
                 child: Center(child: Text('Restart Puzzle', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black))),
               ),
@@ -668,16 +672,22 @@ final cellSize = min(cellSizeW, cellSizeH);
             GestureDetector(
               onTap: () { _timer.cancel(); _stopwatch.stop(); pushFade(context, const PuzzlesMenuScreen()); },
               child: Container(
-                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
                 child: Center(child: Text('Exit to Puzzles', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black54))),
               ),
             ),
           ],
         ),
+        ),
       ),
     ),
-  ),
+      ],
+    ),
+    ),
+    ),
+          ],
+        ),
       ],
     );
   }
@@ -839,7 +849,9 @@ final cellSize = min(cellSizeW, cellSizeH);
             ),
             if (_loaded && !_solved && !_gameOver && _gridCols > _gridRows)
               _buildLandscapeLayout(context),
-            if (_loaded && !_solved && !_gameOver && _gridCols <= _gridRows) Center(
+            if (_loaded && !_solved && !_gameOver && _gridCols <= _gridRows) Positioned(
+              top: 0, left: 0, right: 0, bottom: 0,
+              child: Center(
   child: Stack(
     alignment: Alignment.center,
     children: [
@@ -1001,6 +1013,7 @@ final cellSize = min(cellSizeW, cellSizeH);
                 ],
                 ),
               ),
+            ),
 
             if (_loaded && _gameOver)
                     Padding(
