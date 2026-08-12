@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/screens/profile/public_profile_sheet.dart';
 import 'package:folds/widgets/badge_info_dialog.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/widgets/moderation/leaderboard_ban_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LEADERBOARD — v2: podium + gradient header + staggered list entrance
@@ -36,7 +37,8 @@ class LeaderboardScreenState extends State<LeaderboardScreen> with SingleTickerP
     try {
       final data = await Supabase.instance.client
           .from('profiles')
-          .select('username, total_xp, avatar_path, is_moderator, is_dev_profile, mod_since')
+          .select('username, total_xp, avatar_path, is_moderator, is_dev_profile, mod_since, is_leaderboard_banned')
+          .or('is_leaderboard_banned.eq.false,is_leaderboard_banned.is.null')
           .order('total_xp', ascending: false)
           .limit(50);
 
@@ -57,7 +59,31 @@ class LeaderboardScreenState extends State<LeaderboardScreen> with SingleTickerP
       setState(() { _error = 'Could not load rankings.'; _loading = false; });
     }
   }
-
+  void _showModActions(BuildContext context, String username, bool isBanned) {
+  if (!(AppStore.isModerator || AppStore.isDevProfile)) return;
+  if (username == AppStore.displayUsername) return;
+  showModalBottomSheet(
+    context: context, backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: Icon(isBanned ? Icons.shield_rounded : Icons.leaderboard_rounded,
+              color: isBanned ? const Color(0xFF4CAF50) : Colors.red),
+            title: Text(isBanned ? 'Lift Leaderboard Ban' : 'Leaderboard Ban',
+              style: GoogleFonts.dmSans(fontWeight: FontWeight.w800)),
+            onTap: () {
+              Navigator.pop(ctx);
+              showLeaderboardBanSheet(context, username: username, isCurrentlyBanned: isBanned, onDone: _load);
+            },
+          ),
+        ]),
+      ),
+    ),
+  );
+} 
   @override
   Widget build(BuildContext context) {
     final myXP = AppStore.totalXP;
@@ -290,6 +316,10 @@ class _LeaderboardRow extends StatelessWidget {
 
     return GestureDetector(
       onTap: () => showPublicProfile(context, username: username, xp: xp, leaderboardRank: rank),
+      onLongPress: () {
+        final state = context.findAncestorStateOfType<LeaderboardScreenState>();
+        state?._showModActions(context, username, (entry['is_leaderboard_banned'] as bool?) ?? false);
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

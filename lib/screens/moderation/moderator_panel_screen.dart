@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:folds/widgets/shared/folds_top_bar.dart';
 import 'package:folds/screens/puzzles/puzzle_selector_screen.dart';
 import 'package:folds/screens/profile/auth_screen.dart';
+import 'package:folds/widgets/profile_search_field.dart';
+import 'package:folds/widgets/moderation/leaderboard_ban_sheet.dart';
 
 class ModeratorPanelScreen extends StatefulWidget {
   const ModeratorPanelScreen({super.key});
@@ -172,6 +174,24 @@ class ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
                       style: GoogleFonts.dmSans(
                         fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black45))),
                   ),
+                ),
+
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity, padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(16)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      const Icon(Icons.leaderboard_rounded, color: Colors.red, size: 20),
+                      const SizedBox(width: 8),
+                      Text('LEADERBOARD BAN', style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black54, letterSpacing: 0.5)),
+                    ]),
+                    const SizedBox(height: 10),
+                    ProfileSearchField(
+                      hint: 'Type a username to ban...',
+                      onSelected: (u) => showLeaderboardBanSheet(context, username: u, onDone: () {}),
+                    ),
+                  ]),
                 ),
               ] else ...[
                 const SizedBox(height: 40),
