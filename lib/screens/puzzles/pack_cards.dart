@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:folds/state/app_store.dart';
 import 'puzzle_selector_screen.dart';
+import 'package:folds/core/constants.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUZZLE SIZE CARD (used by PilotPackDetailScreen)
@@ -332,7 +333,7 @@ class HolidayPackBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final unlockDate = DateTime(2026, 06, 10);
+    final unlockDate = kHolidayPackUnlockDate;
     final now = DateTime.now();
     final isUnlocked = !now.isBefore(unlockDate);
     final daysLeft = unlockDate.difference(now).inDays + 1;

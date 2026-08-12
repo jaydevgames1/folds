@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/models/achievement_def.dart';
+import 'package:folds/core/constants.dart';
 
 class StatsTab extends StatelessWidget {
   const StatsTab({super.key});
@@ -35,7 +36,7 @@ class StatsTab extends StatelessWidget {
           const SizedBox(height: 8),
           StatSectionLabel('RECTANGLE PACK'),
           StatPackRow(label: 'Rectangle', done: rect, total: 100),
-          if (!DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
+          if (!DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
             const SizedBox(height: 8),
             StatSectionLabel('HOLIDAY PACK'),
             StatPackRow(label: 'Holiday', done: holiday, total: 25),

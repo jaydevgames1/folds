@@ -16,26 +16,39 @@ class DevPanelScreen extends StatefulWidget {
   State<DevPanelScreen> createState() => DevPanelScreenState();
 }
 
+// AFTER
+// AFTER
 class DevPanelScreenState extends State<DevPanelScreen> {
-  bool _unlocked = AppStore.isDevProfile;
-  final _passCtrl = TextEditingController();
+  bool _checking = true;
+  bool _unlocked = false;
 
-  void _confirm(String message, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      backgroundColor: error ? Colors.redAccent : const Color(0xFF2C2C2C),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      content: Row(children: [
-        Icon(error ? Icons.error_outline_rounded : Icons.check_circle_rounded,
-          color: Colors.white, size: 18),
-        const SizedBox(width: 10),
-        Expanded(child: Text(message, style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.white))),
-      ]),
-    ));
+  @override
+  void initState() {
+    super.initState();
+    _checkAccess();
   }
+
+  Future<void> _checkAccess() async {
+    try {
+      final result = await Supabase.instance.client.rpc('is_dev_user');
+      final granted = result == true;
+      AppStore.isDevProfile = granted; // mirrors the server's verdict locally
+      if (mounted) setState(() { _unlocked = granted; _checking = false; });
+    } catch (e) {
+      if (mounted) setState(() { _unlocked = false; _checking = false; });
+    }
+  }
+
+  void _confirm(String message, {bool error = false}) { /* unchanged */ }
 
   @override
   Widget build(BuildContext context) {
+    if (_checking) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C))),
+      );
+    }
     if (!_unlocked) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -45,49 +58,25 @@ class DevPanelScreenState extends State<DevPanelScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.build_rounded, size: 48, color: Color(0xFF2C2C2C)),
+                const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2C2C2C)),
                 const SizedBox(height: 16),
-                Text('Developer Panel', style: GoogleFonts.dmSans(fontSize: 24, fontWeight: FontWeight.w800)),
+                Text('Developer access is restricted',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Text('Only the JayDev account can open this panel.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black45)),
                 const SizedBox(height: 20),
-                TextField(
-                  controller: _passCtrl,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Password',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true, fillColor: const Color(0xFFF5F5F5),
-                  ),
-                  onSubmitted: (_) {
-                    if (_passCtrl.text == kDevPassword) {
-                      AppStore.isDevProfile = true;
-                      setState(() => _unlocked = true);
-                    } else {
-                      _confirm('Wrong password', error: true);
-                    }
-                  },
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
-                  onPressed: () {
-                    if (_passCtrl.text == kDevPassword) {
-                      AppStore.isDevProfile = true;
-                      setState(() => _unlocked = true);
-                    } else {
-                      _confirm('Wrong password', error: true);
-                    }
-                  },
-                  child: Text('Unlock', style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w800)),
-                ),
-                const SizedBox(height: 12),
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Go Back')),
               ],
             ),
           ),
         ),
       );
     }
+    // ... rest of the panel (tabs) unchanged
+    // ... rest of the panel (tabs) unchanged
 
     return DefaultTabController(
       length: 6,
@@ -129,12 +118,19 @@ class DevPanelScreenState extends State<DevPanelScreen> {
           const SizedBox(width: 8),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
-            onPressed: () {
+            onPressed: () async {
               final amt = int.tryParse(xpCtrl.text) ?? 0;
-              AppStore.totalXP = AppStore.totalXP + amt;
-              xpCtrl.clear();
-              _confirm('Added $amt XP — total ${AppStore.totalXP}');
-            },
+              try {
+                await Supabase.instance.client.rpc('admin_add_xp',
+                  params: {'target_username': AppStore.displayUsername, 'amount': amt});
+                await AppStore.downloadCloudProfile();
+                xpCtrl.clear();
+                if (mounted) setState(() {});
+                _confirm('Added $amt XP, total ${AppStore.totalXP}');
+              } catch (e) {
+                _confirm('$e', error:true);
+              }
+},
             child: Text('Add', style: GoogleFonts.dmSans(color: Colors.white)),
           ),
         ]),

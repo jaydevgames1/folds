@@ -30,6 +30,7 @@ import 'package:folds/screens/social/credits_screen.dart';
 import 'package:folds/screens/social/socials_screen.dart';
 import 'leaderboard_screen.dart';
 import 'package:folds/widgets/gameplay/game_over_crack.dart';
+import 'package:folds/services/audio_service.dart';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,8 +79,7 @@ class GameplayScreenState extends State<GameplayScreen> {
     super.initState();
     _stopwatch = Stopwatch()..start();
     _startTimer();
-    // AudioService.startMusic();
-    _startTimer();
+    AudioService.startMusic();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.initialPuzzleId != null) {
         _requestedId = widget.initialPuzzleId!;
@@ -223,7 +223,8 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
           .from('puzzles')
           .select()
           .eq('id', id)
-          .single();
+          .single()
+          .timeout(const Duration(seconds:10));
       _lastResponse = response;
       await _applyPuzzleData(response);
     } catch (e) {

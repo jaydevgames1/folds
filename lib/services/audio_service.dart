@@ -1,6 +1,7 @@
 import 'package:folds/state/app_settings.dart';
 import 'package:audioplayers/audioplayers.dart'; 
 import 'package:folds/state/app_store.dart';
+import 'package:flutter/material.dart';
 
 
 class AudioService {
@@ -18,10 +19,14 @@ class AudioService {
   await _sfx.setVolume(AppSettings.sfxVolume);
 }
   
-  // static Future<void> startMusic() async {
-  //  if (!AppSettings.musicEnabled) return;
-  //  await _music.play(AssetSource('sounds/bgm.mp3'));
-  // }
+  static Future<void> startMusic() async {
+    if (!AppSettings.musicEnabled) return;
+    try {
+      await _music.play(AssetSource('sounds/bgm.mp3'));
+    } catch (e) {
+    debugPrint('Music playback failed: $e');
+    }
+  }
 
   static Future<void> stopMusic() async => await _music.stop();
   static Future<void> pauseMusic() async => await _music.pause();

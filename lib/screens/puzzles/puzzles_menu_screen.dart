@@ -272,7 +272,7 @@ Expanded(
     child: Column(
       children: [
         // Holiday pack at TOP when unlocked
-        if (!DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
+        if (!DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
           const HolidayPackBanner(),
           const SizedBox(height: 14),
         ],
@@ -307,7 +307,7 @@ Expanded(
           ),
         ),
         // Holiday pack at BOTTOM when not yet unlocked
-        if (DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
+        if (DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
           const SizedBox(height: 14),
           const HolidayPackBanner(),
         ],

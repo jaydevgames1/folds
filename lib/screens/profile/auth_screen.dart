@@ -119,12 +119,11 @@ class AuthScreenState extends State<AuthScreen> {
     );
 
     try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
-    await AppStore.wipeLocalProfileData();
-
     await Supabase.instance.client.auth.signInWithPassword(
       email: email,
       password: _passwordController.text,
     );
+    await AppStore.wipeLocalProfileData();
     await AppStore.downloadCloudProfile();
 
     rootNavigator.pushAndRemoveUntil(

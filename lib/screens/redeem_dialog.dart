@@ -114,52 +114,27 @@ void showRedeemDialog(BuildContext outerContext) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECURE SUPABASE REDEEM ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// SECURE SUPABASE REDEEM ENGINE (FIXED NAV CONTEXT)
-// ─────────────────────────────────────────────────────────────────────────────
 Future<void> _processRedeemCode(BuildContext context, String code) async {
-  final NavigatorState navigator = Navigator.of(context, rootNavigator: true);
-  // Normalize checking state
-  final cleanedCode = code.toUpperCase().replaceAll('-', '');
-  // ───────────────────────────────────────────────────────────────────────────
-  // SECRET DEV INTERCEPT OVERRIDE
-  // ───────────────────────────────────────────────────────────────────────────
-  if (cleanedCode == 'GIVEMEINFINITEXP') {
-    AppStore.isDeveloperMode = true; 
-    
-    // Direct feedback bypass (No network delay simulator needed)
-    _showRedeemFeedback(
-      context, 
-      true, 
-      '🛠️ Developer Tools Unlocked! Check your Profile XP bar.'
-    );
-    return; // Exit method immediately so it doesn't query Supabase
-  }
   showDialog(
     context: context,
     barrierDismissible: false,
     builder: (dialogCtx) => const Center(
       child: CircularProgressIndicator(color: Colors.black),
-    ),
+  ),
   );
 
   try {
     final response = await Supabase.instance.client
-        .from('promo_codes')
-        .select()
-        .eq('code', code)
-        .maybeSingle();
-
-    if (navigator.canPop()) {
-      navigator.pop();
-    }
+      .from('promo_codes')
+      .select()
+      .eq('code', code)
+      .maybeSingle(); // literally me
+    
+    if (Navigator.canPop(context)) Navigator.pop(context);
 
     if (response == null) {
-      _showRedeemFeedback(context, false, '❌ Invalid code token. Please verify and try again.');
-      return; 
+      _showRedeemFeedback(context, false, 'That\'s not a valid code! Try verifying the code from your source, or see if it exists.');
+      return;
     }
 
     final bool isOneTime = response['is_one_time_use'] ?? false;
@@ -168,38 +143,37 @@ Future<void> _processRedeemCode(BuildContext context, String code) async {
     final String rewardValue = response['reward_value'] ?? '';
 
     if (isOneTime && isClaimed) {
-      _showRedeemFeedback(context, false, '❌ This limited-use code has already been claimed.');
+      _showRedeemFeedback(context, false, 'This code is a one-time use, and has already been claimed.');
       return;
     }
 
     if (isOneTime) {
       await Supabase.instance.client
-          .from('promo_codes')
-          .update({'is_claimed': true})
-          .eq('code', code);
+        .from('promo_codes')
+        .update({'is_claimed': true})
+        .eq('code', code);
     }
 
-    String successMessage = '🎉 Reward Successfully Redeemed!';
-    if (rewardType == 'xp') {
-      final int xpAmount = int.tryParse(rewardValue) ?? 0;
-      AppStore.totalXP = AppStore.totalXP + xpAmount;
-      successMessage = '🎉 $xpAmount XP successfully credited to your profile!';
-    } else if (rewardType == 'texture') {
+    String successMessage = 'Reward successfully redeemed!';
+    if (rewardType == 'texture') {
       AppStore.unlockTexturePack(rewardValue);
       final def = texturePacks.firstWhere((t) => t.id.name == rewardValue, orElse: () => texturePacks.first);
-      successMessage = '🎨 "${def.name}" texture pack unlocked! Equip it in Settings → Texture Packs.';
-    } else if (rewardType == 'skin') {
+      successMessage = '"${def.name}" texture pack unlocked! Equip it in Settings -> Texture Packs.';
+     } else if (rewardType == 'skin') {
       successMessage = '💎 ${rewardValue.toUpperCase()} grid style skin unlocked!';
     } else if (rewardType == 'pack') {
       successMessage = '📦 Special level bundle "$rewardValue" unlocked!';
+    } else if (rewardType == 'xp') {
+      final int xpAmount = int.tryParse(rewardValue) ?? 0;
+      await Supabase.instance.client.rpc('admin_add_xp',
+        params: {'target_username': AppStore.displayUsername, 'amount': xpAmount});
+      await AppStore.downloadCloudProfile();
+      successMessage = '🎉 $xpAmount XP successfully credited to your profile!';
     }
 
     _showRedeemFeedback(context, true, successMessage);
-
   } catch (e) {
-    if (navigator.canPop()) {
-      navigator.pop();
-    }
+    if (Navigator.canPop(context)) Navigator.pop(context);
     _showRedeemFeedback(context, false, '⚠️ Network/Server error. Check connection.');
     debugPrint("Redeem failure: $e");
   }
@@ -209,7 +183,7 @@ void _showRedeemFeedback(BuildContext context, bool success, String message) {
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      backgroundColor: success ? const Color(0xFF2C2C2C) : Colors.redAccent,
+      backgroundColor: success ? const Color(0xFF2c2c2c) : Colors.redAccent,
       behavior: SnackBarBehavior.floating,
       content: Text(
         message,
@@ -218,4 +192,3 @@ void _showRedeemFeedback(BuildContext context, bool success, String message) {
     ),
   );
 }
-

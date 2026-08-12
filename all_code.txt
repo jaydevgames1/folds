@@ -7,9 +7,9 @@ int foldsDayNumberFor(DateTime date) {
   final diff = clean.difference(kFoldsLaunchDate).inDays;
   return diff >= 0 ? diff + 1 : diff;
 }-e \n\n// ===== FILE: lib/core/constants.dart =====
-const String kDevPassword = 'ilovefoldy';
-const String kModPassword = 'foldsmoderator245!';
 final DateTime kFoldsLaunchDate = DateTime(2026, 11, 1);
+final DateTime kHolidayPackUnlockDate = DateTime(2026, 12, 10);
+
 int foldsDayNumberFor(DateTime date) {
   final clean = DateTime(date.year, date.month, date.day);
   final diff = clean.difference(kFoldsLaunchDate).inDays;
@@ -537,7 +537,7 @@ class AppStore {
     await _p?.setString('username', name);
   }
 
-  static bool isDeveloperMode = false;
+  
   static SharedPreferences? _p;
 
   static int get themeMode => _p?.getInt('themeMode') ?? 2;
@@ -1579,26 +1579,39 @@ class DevPanelScreen extends StatefulWidget {
   State<DevPanelScreen> createState() => DevPanelScreenState();
 }
 
+// AFTER
+// AFTER
 class DevPanelScreenState extends State<DevPanelScreen> {
-  bool _unlocked = AppStore.isDevProfile;
-  final _passCtrl = TextEditingController();
+  bool _checking = true;
+  bool _unlocked = false;
 
-  void _confirm(String message, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      backgroundColor: error ? Colors.redAccent : const Color(0xFF2C2C2C),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      content: Row(children: [
-        Icon(error ? Icons.error_outline_rounded : Icons.check_circle_rounded,
-          color: Colors.white, size: 18),
-        const SizedBox(width: 10),
-        Expanded(child: Text(message, style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.white))),
-      ]),
-    ));
+  @override
+  void initState() {
+    super.initState();
+    _checkAccess();
   }
+
+  Future<void> _checkAccess() async {
+    try {
+      final result = await Supabase.instance.client.rpc('is_dev_user');
+      final granted = result == true;
+      AppStore.isDevProfile = granted; // mirrors the server's verdict locally
+      if (mounted) setState(() { _unlocked = granted; _checking = false; });
+    } catch (e) {
+      if (mounted) setState(() { _unlocked = false; _checking = false; });
+    }
+  }
+
+  void _confirm(String message, {bool error = false}) { /* unchanged */ }
 
   @override
   Widget build(BuildContext context) {
+    if (_checking) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C))),
+      );
+    }
     if (!_unlocked) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -1608,49 +1621,25 @@ class DevPanelScreenState extends State<DevPanelScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.build_rounded, size: 48, color: Color(0xFF2C2C2C)),
+                const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2C2C2C)),
                 const SizedBox(height: 16),
-                Text('Developer Panel', style: GoogleFonts.dmSans(fontSize: 24, fontWeight: FontWeight.w800)),
+                Text('Developer access is restricted',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Text('Only the JayDev account can open this panel.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black45)),
                 const SizedBox(height: 20),
-                TextField(
-                  controller: _passCtrl,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Password',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true, fillColor: const Color(0xFFF5F5F5),
-                  ),
-                  onSubmitted: (_) {
-                    if (_passCtrl.text == kDevPassword) {
-                      AppStore.isDevProfile = true;
-                      setState(() => _unlocked = true);
-                    } else {
-                      _confirm('Wrong password', error: true);
-                    }
-                  },
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
-                  onPressed: () {
-                    if (_passCtrl.text == kDevPassword) {
-                      AppStore.isDevProfile = true;
-                      setState(() => _unlocked = true);
-                    } else {
-                      _confirm('Wrong password', error: true);
-                    }
-                  },
-                  child: Text('Unlock', style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w800)),
-                ),
-                const SizedBox(height: 12),
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Go Back')),
               ],
             ),
           ),
         ),
       );
     }
+    // ... rest of the panel (tabs) unchanged
+    // ... rest of the panel (tabs) unchanged
 
     return DefaultTabController(
       length: 6,
@@ -1692,12 +1681,19 @@ class DevPanelScreenState extends State<DevPanelScreen> {
           const SizedBox(width: 8),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
-            onPressed: () {
+            onPressed: () async {
               final amt = int.tryParse(xpCtrl.text) ?? 0;
-              AppStore.totalXP = AppStore.totalXP + amt;
-              xpCtrl.clear();
-              _confirm('Added $amt XP — total ${AppStore.totalXP}');
-            },
+              try {
+                await Supabase.instance.client.rpc('admin_add_xp',
+                  params: {'target_username': AppStore.displayUsername, 'amount': amt});
+                await AppStore.downloadCloudProfile();
+                xpCtrl.clear();
+                if (mounted) setState(() {});
+                _confirm('Added $amt XP, total ${AppStore.totalXP}');
+              } catch (e) {
+                _confirm('$e', error:true);
+              }
+},
             child: Text('Add', style: GoogleFonts.dmSans(color: Colors.white)),
           ),
         ]),
@@ -2024,6 +2020,7 @@ import 'package:folds/screens/social/credits_screen.dart';
 import 'package:folds/screens/social/socials_screen.dart';
 import 'leaderboard_screen.dart';
 import 'package:folds/widgets/gameplay/game_over_crack.dart';
+import 'package:folds/services/audio_service.dart';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2072,8 +2069,7 @@ class GameplayScreenState extends State<GameplayScreen> {
     super.initState();
     _stopwatch = Stopwatch()..start();
     _startTimer();
-    // AudioService.startMusic();
-    _startTimer();
+    AudioService.startMusic();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.initialPuzzleId != null) {
         _requestedId = widget.initialPuzzleId!;
@@ -2217,11 +2213,13 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
           .from('puzzles')
           .select()
           .eq('id', id)
-          .single();
+          .single()
+          .timeout(const Duration(seconds:10));
       _lastResponse = response;
       await _applyPuzzleData(response);
     } catch (e) {
       debugPrint('❌ Supabase error: $e');
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _notFound = true;
@@ -2250,16 +2248,20 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     }
 
     if (!resetOnly) {
-      if (gridCols > gridRows) {
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
-        ]);
-      } else {
-        await SystemChrome.setPreferredOrientations([
-          DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
-        ]);
-      }
-    }
+  if (gridCols > gridRows) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
+    ]);
+    // Let the physical rotation animation finish before the grid renders —
+    // otherwise it briefly lays out against the old (portrait) constraints
+    // and throws an overflow error the user can see.
+    await Future.delayed(const Duration(milliseconds: 350));
+  } else {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
+    ]);
+  }
+}
 
     setState(() {
       _cells = List<bool>.from(rawCells); // fresh copy every time — never re-uses the failed board
@@ -2376,92 +2378,93 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
       return;
     }
     
+    Future<void> _completePuzzle() async {
+  _stopwatch.stop();
+  _timer.cancel();
+  if (AppSettings.haptic) HapticFeedback.heavyImpact();
+  AudioService.solve();
+
+  void tryUnlock(String id) {
+    if (!AppStore.isUnlocked(id)) {
+      AppStore.unlockAchievement(id); // instant local flag for the toast
+      _showAchievementToast(id);
+      Supabase.instance.client.rpc('unlock_achievement', params: {'p_id': id})
+          .catchError((e) => debugPrint('achievement sync failed: $e'));
+    }
+  }
+
+  final alreadyCompleted = AppStore.isCompleted(_id);
+  final hasFailedBefore = AppStore.hasFailed(_id);
+
+  int awardedXP = 0;
+  try {
+    final result = await Supabase.instance.client
+        .rpc('complete_puzzle', params: {'p_puzzle_id': _id, 'p_moves': _moves});
+    awardedXP = (result?['awarded_xp'] as int?) ?? 0;
+    await AppStore.downloadCloudProfile(); // pulls the authoritative XP/streak back down
+  } catch (e) {
+    debugPrint('complete_puzzle RPC failed: $e');
+    AppStore.markCompleted(_id);
+    if (_moves <= _par) AppStore.markParCompleted(_id);
+    if (_moves > _par * 2) AppStore.markFailed(_id);
+  }
+
+  tryUnlock('first_fold');
+  if (_gridRows == 6 && _gridCols == 6) tryUnlock('grid_master');
+  if (_moves == _par) tryUnlock('flawless');
+  if (_moves == _par + 1) tryUnlock('one_more');
+  if (_stopwatch.elapsedMilliseconds < 15000) tryUnlock('speed_demon');
+  if (AppStore.totalFlips >= 100) tryUnlock('flippin_crazy');
+  if (AppStore.totalFlips >= 250) tryUnlock('flipaholic');
+  if (AppStore.totalFlips >= 500) tryUnlock('addicted_to_flipping');
+  if (AppStore.totalFlips >= 1000) tryUnlock('flip_god');
+  AppStore.incrementTodayCount();
+  if (AppStore.todayCompletedCount >= 10) tryUnlock('folding_frenzy');
+
+  final nowSolving = DateTime.now();
+  if (nowSolving.hour >= 2 && nowSolving.hour < 4) tryUnlock('night_owl');
+  if (_id.startsWith('d') && nowSolving.hour < 6) tryUnlock('early_bird');
+  if (hasFailedBefore && _moves <= _par) tryUnlock('comeback_kid');
+  if (foldsDayNumberFor(nowSolving) < 1) tryUnlock('beta_tester');
+
+  if (_moves <= _par) {
+    AppStore.parStreak = AppStore.parStreak + 1;
+    if (AppStore.parStreak >= 10) tryUnlock('perfectionist');
+  } else {
+    AppStore.parStreak = 0;
+  }
+
+  final totalCompleted = AppStore.puzzlesCompleted + AppStore.dailiesCompleted;
+  if (totalCompleted >= 10) tryUnlock('novice_folder');
+  if (totalCompleted >= 50) tryUnlock('adept_folder');
+  if (totalCompleted >= 150) tryUnlock('expert_folder');
+  if (totalCompleted >= 300) tryUnlock('master_folder');
+
+  final parCount = AppStore.parPuzzles.length;
+  if (parCount >= 10) tryUnlock('par_10');
+  if (parCount >= 50) tryUnlock('par_50');
+  if (parCount >= 150) tryUnlock('par_150');
+
+  final streak = AppStore.currentStreak;
+  if (streak >= 7) tryUnlock('streak_7');
+  if (streak >= 30) tryUnlock('streak_30');
+  if (streak >= 100) tryUnlock('streak_100');
+  if (streak >= 365) tryUnlock('streak_365');
+
+  if (_id.startsWith('p')) AppStore.recentPack = 'PILOT';
+  if (_id.startsWith('r')) AppStore.recentPack = 'RECTANGLE';
+  _hideXPOnComplete = alreadyCompleted;
+
+  if (_moves <= _par) _showConfetti();
+  if (!mounted) return;
+  setState(() { _solved = true; _earnedXP = awardedXP; });
+}
 
     if (_isSymmetrical()) {
-      _stopwatch.stop();
-      _timer.cancel();
-      final hasFailed = AppStore.hasFailed(_id);
-      final xp = XPSystem.calculate(
-        difficulty: _difficulty,
-        moves: _moves,
-        par: _par,
-        hasFailed: hasFailed,
-      );
-      if (AppSettings.haptic) HapticFeedback.heavyImpact();
-      AudioService.solve();
-
-      void tryUnlock(String id) {
-        if (!AppStore.isUnlocked(id)) {
-          AppStore.unlockAchievement(id);
-          _showAchievementToast(id);
-        }
-      }
-      tryUnlock('first_fold');
-      if (_gridRows == 6 && _gridCols == 6) tryUnlock('grid_master');
-      if (_moves == _par) tryUnlock('flawless');
-      if (_moves == _par + 1) tryUnlock('one_more');
-      if (_stopwatch.elapsedMilliseconds < 15000) tryUnlock('speed_demon');
-      if (AppStore.totalFlips >= 100) tryUnlock('flippin_crazy');
-      if (AppStore.totalFlips >= 250) tryUnlock('flipaholic');
-      if (AppStore.totalFlips >= 500) tryUnlock('addicted_to_flipping');
-      if (AppStore.totalFlips >= 1000) tryUnlock('flip_god');
-      AppStore.incrementTodayCount();
-      if (AppStore.todayCompletedCount >= 10) tryUnlock('folding_frenzy');
-
-      final nowSolving = DateTime.now();
-      if (nowSolving.hour >= 2 && nowSolving.hour < 4) tryUnlock('night_owl');
-      if (_id.startsWith('d') && nowSolving.hour < 6) tryUnlock('early_bird');
-      if (hasFailed && _moves <= _par) tryUnlock('comeback_kid');
-      if (foldsDayNumberFor(nowSolving) < 1) tryUnlock('beta_tester');
-
-      if (_moves <= _par) {
-        AppStore.parStreak = AppStore.parStreak + 1;
-        if (AppStore.parStreak >= 10) tryUnlock('perfectionist');
-      } else {
-        AppStore.parStreak = 0;
-      }
-
-      final alreadyCompleted = AppStore.isCompleted(_id);
-      int awardedXP = 0;
-      if (!alreadyCompleted) {
-        if (_moves > _par * 2) AppStore.markFailed(_id);
-        awardedXP = xp;
-        AppStore.totalXP = AppStore.totalXP + awardedXP;
-      }
-      if (_moves <= _par) AppStore.markParCompleted(_id);
-      AppStore.markCompleted(_id);
-
-      final totalCompleted = AppStore.puzzlesCompleted + AppStore.dailiesCompleted;
-      if (totalCompleted >= 10) tryUnlock('novice_folder');
-      if (totalCompleted >= 50) tryUnlock('adept_folder');
-      if (totalCompleted >= 150) tryUnlock('expert_folder');
-      if (totalCompleted >= 300) tryUnlock('master_folder');
-
-      final parCount = AppStore.parPuzzles.length;
-      if (parCount >= 10) tryUnlock('par_10');
-      if (parCount >= 50) tryUnlock('par_50');
-      if (parCount >= 150) tryUnlock('par_150');
-
-      if (_id.startsWith('d')) {
-        if (!alreadyCompleted) AppStore.updateStreak();
-        final streak = AppStore.currentStreak;
-        if (streak >= 7) tryUnlock('streak_7');
-        if (streak >= 30) tryUnlock('streak_30');
-        if (streak >= 100) tryUnlock('streak_100');
-        if (streak >= 365) tryUnlock('streak_365');
-      } else if (_id.startsWith('p')) {
-        AppStore.recentPack = 'PILOT';
-      } else if (_id.startsWith('r')) {
-        AppStore.recentPack = 'RECTANGLE';
-      }
-      _hideXPOnComplete = alreadyCompleted;
-
-      if (_moves <= _par) _showConfetti();
-      setState(() {
-        _solved = true;
-        _earnedXP = awardedXP;
-      });
+      _completePuzzle();
     }
+
+    
   }
 
   Widget _buildLandscapeLayout(BuildContext context) {
@@ -2526,7 +2529,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
                         style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black),
                         maxLines: 2, overflow: TextOverflow.ellipsis),
                     ),
-                    Text('by $_author',
+                    Text('$_author',
                       style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w400, color: Colors.black54)),
                     const Spacer(),
                     Text('Difficulty:', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
@@ -2578,8 +2581,11 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(8),
-                child: Center(
-                  child: Container(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Center(
+                      child: Container(
                     color: FoldsTheme.gridBg(_id),
                     padding: const EdgeInsets.all(10),
                     child: LayoutBuilder(
@@ -2620,12 +2626,8 @@ final cellSize = min(cellSizeW, cellSizeH);
                         );
                       },
                     ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+                      ),
+                    ),
         // Pause overlay
         if (_paused)
   Positioned.fill(
@@ -2639,11 +2641,11 @@ final cellSize = min(cellSizeW, cellSizeH);
             Text('PAUSED', style: GoogleFonts.dmSans(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.black, letterSpacing: 4)),
             const SizedBox(height: 6),
             Text(_puzzleDisplayTitle, style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black38, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             GestureDetector(
               onTap: () { setState(() => _paused = false); _stopwatch.start(); _startTimer(); },
               child: Container(
-                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(14)),
                 child: Center(child: Text('RESUME', style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1))),
               ),
@@ -2652,7 +2654,7 @@ final cellSize = min(cellSizeW, cellSizeH);
             GestureDetector(
               onTap: () { setState(() => _paused = false); _loadPuzzle(_id, forcePlay: true); _resetTimer(); },
               child: Container(
-                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
                 child: Center(child: Text('Restart Puzzle', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black))),
               ),
@@ -2661,16 +2663,22 @@ final cellSize = min(cellSizeW, cellSizeH);
             GestureDetector(
               onTap: () { _timer.cancel(); _stopwatch.stop(); pushFade(context, const PuzzlesMenuScreen()); },
               child: Container(
-                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(14)),
                 child: Center(child: Text('Exit to Puzzles', style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black54))),
               ),
             ),
           ],
         ),
+        ),
       ),
     ),
-  ),
+      ],
+    ),
+    ),
+    ),
+          ],
+        ),
       ],
     );
   }
@@ -2832,7 +2840,9 @@ final cellSize = min(cellSizeW, cellSizeH);
             ),
             if (_loaded && !_solved && !_gameOver && _gridCols > _gridRows)
               _buildLandscapeLayout(context),
-            if (_loaded && !_solved && !_gameOver && _gridCols <= _gridRows) Center(
+            if (_loaded && !_solved && !_gameOver && _gridCols <= _gridRows) Positioned(
+              top: 0, left: 0, right: 0, bottom: 0,
+              child: Center(
   child: Stack(
     alignment: Alignment.center,
     children: [
@@ -2994,6 +3004,7 @@ final cellSize = min(cellSizeW, cellSizeH);
                 ],
                 ),
               ),
+            ),
 
             if (_loaded && _gameOver)
                     Padding(
@@ -3018,7 +3029,7 @@ final cellSize = min(cellSizeW, cellSizeH);
 
 
             // ── Top bar (portrait only) ──────────────────────────────────────────
-            if (_gridCols <= _gridRows && !_gameOver)
+            if (_gridCols <= _gridRows)
               Positioned(
               top: 0, left: 0, right: 0,
               child: Padding(
@@ -3041,7 +3052,7 @@ final cellSize = min(cellSizeW, cellSizeH);
                           opacity: AppSettings.showTimer ? 1.0 : 0.0,
                           child: Text(_timeDisplay, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.black)),
                         ),
-                        if (_solved)
+                        if (_solved && !_gameOver)
                           const SizedBox(width: 40, height: 40)
                         else
                           GestureDetector(
@@ -3066,7 +3077,7 @@ final cellSize = min(cellSizeW, cellSizeH);
                           ),
                       ],
                     ),
-                    if (!_solved) ...[
+                    if (!_solved || _gameOver) ...[
                       const SizedBox(height: 24),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3104,7 +3115,7 @@ final cellSize = min(cellSizeW, cellSizeH);
 
             // ── Moves bar ────────────────────────────────────────
             // ── Moves bar ────────────────────────────────────────
-            if (!_solved && _gridCols <= _gridRows && !_gameOver) Positioned(
+            if (!_solved && _gridCols <= _gridRows ) Positioned(
               bottom: 24, left: 20, right: 20,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
@@ -3634,52 +3645,27 @@ void showRedeemDialog(BuildContext outerContext) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECURE SUPABASE REDEEM ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// SECURE SUPABASE REDEEM ENGINE (FIXED NAV CONTEXT)
-// ─────────────────────────────────────────────────────────────────────────────
 Future<void> _processRedeemCode(BuildContext context, String code) async {
-  final NavigatorState navigator = Navigator.of(context, rootNavigator: true);
-  // Normalize checking state
-  final cleanedCode = code.toUpperCase().replaceAll('-', '');
-  // ───────────────────────────────────────────────────────────────────────────
-  // SECRET DEV INTERCEPT OVERRIDE
-  // ───────────────────────────────────────────────────────────────────────────
-  if (cleanedCode == 'GIVEMEINFINITEXP') {
-    AppStore.isDeveloperMode = true; 
-    
-    // Direct feedback bypass (No network delay simulator needed)
-    _showRedeemFeedback(
-      context, 
-      true, 
-      '🛠️ Developer Tools Unlocked! Check your Profile XP bar.'
-    );
-    return; // Exit method immediately so it doesn't query Supabase
-  }
   showDialog(
     context: context,
     barrierDismissible: false,
     builder: (dialogCtx) => const Center(
       child: CircularProgressIndicator(color: Colors.black),
-    ),
+  ),
   );
 
   try {
     final response = await Supabase.instance.client
-        .from('promo_codes')
-        .select()
-        .eq('code', code)
-        .maybeSingle();
-
-    if (navigator.canPop()) {
-      navigator.pop();
-    }
+      .from('promo_codes')
+      .select()
+      .eq('code', code)
+      .maybeSingle(); // literally me
+    
+    if (Navigator.canPop(context)) Navigator.pop(context);
 
     if (response == null) {
-      _showRedeemFeedback(context, false, '❌ Invalid code token. Please verify and try again.');
-      return; 
+      _showRedeemFeedback(context, false, 'That\'s not a valid code! Try verifying the code from your source, or see if it exists.');
+      return;
     }
 
     final bool isOneTime = response['is_one_time_use'] ?? false;
@@ -3688,38 +3674,37 @@ Future<void> _processRedeemCode(BuildContext context, String code) async {
     final String rewardValue = response['reward_value'] ?? '';
 
     if (isOneTime && isClaimed) {
-      _showRedeemFeedback(context, false, '❌ This limited-use code has already been claimed.');
+      _showRedeemFeedback(context, false, 'This code is a one-time use, and has already been claimed.');
       return;
     }
 
     if (isOneTime) {
       await Supabase.instance.client
-          .from('promo_codes')
-          .update({'is_claimed': true})
-          .eq('code', code);
+        .from('promo_codes')
+        .update({'is_claimed': true})
+        .eq('code', code);
     }
 
-    String successMessage = '🎉 Reward Successfully Redeemed!';
-    if (rewardType == 'xp') {
-      final int xpAmount = int.tryParse(rewardValue) ?? 0;
-      AppStore.totalXP = AppStore.totalXP + xpAmount;
-      successMessage = '🎉 $xpAmount XP successfully credited to your profile!';
-    } else if (rewardType == 'texture') {
+    String successMessage = 'Reward successfully redeemed!';
+    if (rewardType == 'texture') {
       AppStore.unlockTexturePack(rewardValue);
       final def = texturePacks.firstWhere((t) => t.id.name == rewardValue, orElse: () => texturePacks.first);
-      successMessage = '🎨 "${def.name}" texture pack unlocked! Equip it in Settings → Texture Packs.';
-    } else if (rewardType == 'skin') {
+      successMessage = '"${def.name}" texture pack unlocked! Equip it in Settings -> Texture Packs.';
+     } else if (rewardType == 'skin') {
       successMessage = '💎 ${rewardValue.toUpperCase()} grid style skin unlocked!';
     } else if (rewardType == 'pack') {
       successMessage = '📦 Special level bundle "$rewardValue" unlocked!';
+    } else if (rewardType == 'xp') {
+      final int xpAmount = int.tryParse(rewardValue) ?? 0;
+      await Supabase.instance.client.rpc('admin_add_xp',
+        params: {'target_username': AppStore.displayUsername, 'amount': xpAmount});
+      await AppStore.downloadCloudProfile();
+      successMessage = '🎉 $xpAmount XP successfully credited to your profile!';
     }
 
     _showRedeemFeedback(context, true, successMessage);
-
   } catch (e) {
-    if (navigator.canPop()) {
-      navigator.pop();
-    }
+    if (Navigator.canPop(context)) Navigator.pop(context);
     _showRedeemFeedback(context, false, '⚠️ Network/Server error. Check connection.');
     debugPrint("Redeem failure: $e");
   }
@@ -3729,7 +3714,7 @@ void _showRedeemFeedback(BuildContext context, bool success, String message) {
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      backgroundColor: success ? const Color(0xFF2C2C2C) : Colors.redAccent,
+      backgroundColor: success ? const Color(0xFF2c2c2c) : Colors.redAccent,
       behavior: SnackBarBehavior.floating,
       content: Text(
         message,
@@ -3737,9 +3722,7 @@ void _showRedeemFeedback(BuildContext context, bool success, String message) {
       ),
     ),
   );
-}
-
--e \n\n// ===== FILE: lib/screens/profile/account_management_screen.dart =====
+}-e \n\n// ===== FILE: lib/screens/profile/account_management_screen.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -3784,8 +3767,8 @@ class AccountManagementScreen extends StatelessWidget {
               GestureDetector(
                 onTap: () async {
                   // Blank the screen the instant the user taps — don't wait on
-                  // the network call, which is exactly what was going wrong.
-                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                  final rootNavigator = Navigator.of(context, rootNavigator: true);
+                  rootNavigator.pushAndRemoveUntil(
                     PageRouteBuilder(
                       pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing Out...'),
                       transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
@@ -3793,9 +3776,9 @@ class AccountManagementScreen extends StatelessWidget {
                     ),
                     (route) => false,
                   );
-                  await AppStore.signOutToGuest();
-                  if (context.mounted) {
-                    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                  try { await AppStore.signOutToGuest(); } catch (_) {}
+                 
+                    rootNavigator.pushAndRemoveUntil(
                       PageRouteBuilder(
                         pageBuilder: (_, __, ___) => const GameplayScreen(),
                         transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
@@ -3803,7 +3786,7 @@ class AccountManagementScreen extends StatelessWidget {
                       ),
                       (route) => false,
                     );
-                  }
+                  
                 },
                 child: Container(
                   height: 50, decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(12)),
@@ -4240,6 +4223,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/models/achievement_def.dart';
+import 'package:folds/core/constants.dart';
 
 class StatsTab extends StatelessWidget {
   const StatsTab({super.key});
@@ -4273,7 +4257,7 @@ class StatsTab extends StatelessWidget {
           const SizedBox(height: 8),
           StatSectionLabel('RECTANGLE PACK'),
           StatPackRow(label: 'Rectangle', done: rect, total: 100),
-          if (!DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
+          if (!DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
             const SizedBox(height: 8),
             StatSectionLabel('HOLIDAY PACK'),
             StatPackRow(label: 'Holiday', done: holiday, total: 25),
@@ -4837,12 +4821,24 @@ import 'package:folds/widgets/shared/folds_dialog.dart';
 import 'package:folds/screens/gameplay_screen.dart';
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final String? errorMessage;
+  const AuthScreen({super.key, this.errorMessage});
   @override
   State<AuthScreen> createState() => AuthScreenState();
 }
 
 class AuthScreenState extends State<AuthScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.errorMessage != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(widget.errorMessage!)));
+        }
+      });
+    }
+  }
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _usernameController = TextEditingController();
@@ -4920,46 +4916,52 @@ class AuthScreenState extends State<AuthScreen> {
             content: Text('Welcome to the Fold! You\'re signed in.')));
           Navigator.pop(context, true);
         }
-      } else {
-        final input = _emailController.text.trim();
-        final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+      // _authenticate()'s sign-in (else) branch — replace entirely with:
+} else {
+  final rootNavigator = Navigator.of(context, rootNavigator: true);
+  final input = _emailController.text.trim();
+  try {
+    final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
 
-        // Show the transition screen immediately, before the network calls —
-        // the person should never see their old guest data while this runs.
-        if (mounted) {
-          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-            PageRouteBuilder(
-              pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
-              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-              transitionDuration: const Duration(milliseconds: 200),
-            ),
-            (route) => false,
-          );
-        }
+    rootNavigator.pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 200),
+      ),
+      (route) => false,
+    );
 
-        // Drop whatever guest/anonymous session is active and forget its data
-        // before pulling down the real account.
-        try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
-        await AppStore.wipeLocalProfileData();
+    try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
+    await Supabase.instance.client.auth.signInWithPassword(
+      email: email,
+      password: _passwordController.text,
+    );
+    await AppStore.wipeLocalProfileData();
+    await AppStore.downloadCloudProfile();
 
-        await Supabase.instance.client.auth.signInWithPassword(
-          email: email,
-          password: _passwordController.text,
-        );
-        await AppStore.downloadCloudProfile();
-
-        if (mounted) {
-          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-            PageRouteBuilder(
-              pageBuilder: (_, __, ___) => const GameplayScreen(),
-              transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-              transitionDuration: const Duration(milliseconds: 350),
-            ),
-            (route) => false,
-          );
-        }
-        return; // transition already navigated away — skip the setState below
-      }
+    rootNavigator.pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const GameplayScreen(),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 350),
+      ),
+      (route) => false,
+    );
+  } catch (e) {
+    // The old AuthScreen context is gone by now, so we can't snackbar on it —
+    // bounce to a fresh AuthScreen that shows the error instead of hanging.
+    rootNavigator.pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => AuthScreen(errorMessage: e.toString()),
+        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionDuration: const Duration(milliseconds: 200),
+      ),
+      (route) => false,
+    );
+  }
+  return;
+}
 
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
@@ -5367,70 +5369,7 @@ class ProfileTabState extends State<ProfileTab> {
               label: '$xp XP total'),
               
           // ── SECRET DEV PANEL ───────────────────────────────────────────
-          if (AppStore.isDeveloperMode) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFAEC),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFD465), width: 1.5),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    '🛠️ DEV PANEL:',
-                    style: GoogleFonts.dmSans(
-                      fontSize: 12, 
-                      fontWeight: FontWeight.w800, 
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const Spacer(),
-                  // ADD +5K
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        AppStore.totalXP = AppStore.totalXP + 5000;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C2C),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '+5K XP',
-                        style: GoogleFonts.dmSans(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // MULTIPLY x2
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        AppStore.totalXP = AppStore.totalXP * 2;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C2C),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '×2 MULTIPLY',
-                        style: GoogleFonts.dmSans(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
+          
           _divider(),
           
 
@@ -5445,30 +5384,24 @@ class ProfileTabState extends State<ProfileTab> {
                   style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
                 GestureDetector(
                   onTap: () {
-                    // Navigate to first uncompleted puzzle in recent pack
-                    if (recentPack == 'PILOT') {
-                      // Find first uncompleted p-series puzzle
-                      String targetId = 'p1';
-                      for (int i = 1; i <= 100; i++) {
-                        if (!AppStore.isCompleted('p$i')) {
-                          targetId = 'p$i';
-                          break;
-                        }
-                      }
-                      Navigator.pushAndRemoveUntil(
-                        context,
-                        PageRouteBuilder(
-                          pageBuilder: (_, __, ___) => GameplayScreen(initialPuzzleId: targetId),
-                          transitionsBuilder: (_, animation, __, child) {
-                            final slide = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero)
-                                .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-                            return SlideTransition(position: slide, child: child);
-                          },
-                          transitionDuration: const Duration(milliseconds: 320),
-                        ),
-                        (route) => false,
-                      );
-                    }
+                    // AFTER
+onTap: () {
+  String prefix = recentPack == 'PILOT' ? 'p' : 'r';
+  int max = recentPack == 'PILOT' ? 100 : 100;
+  String targetId = '${prefix}1';
+  for (int i = 1; i <= max; i++) {
+    if (!AppStore.isCompleted('$prefix$i')) { targetId = '$prefix$i'; break; }
+  }
+  Navigator.pushAndRemoveUntil(context, PageRouteBuilder(
+    pageBuilder: (_, __, ___) => GameplayScreen(initialPuzzleId: targetId),
+    transitionsBuilder: (_, animation, __, child) {
+      final slide = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero)
+          .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+      return SlideTransition(position: slide, child: child);
+    },
+    transitionDuration: const Duration(milliseconds: 320),
+  ), (route) => false);
+};
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -6404,7 +6337,7 @@ Expanded(
     child: Column(
       children: [
         // Holiday pack at TOP when unlocked
-        if (!DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
+        if (!DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
           const HolidayPackBanner(),
           const SizedBox(height: 14),
         ],
@@ -6439,7 +6372,7 @@ Expanded(
           ),
         ),
         // Holiday pack at BOTTOM when not yet unlocked
-        if (DateTime.now().isBefore(DateTime(2026, 12, 10))) ...[
+        if (DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
           const SizedBox(height: 14),
           const HolidayPackBanner(),
         ],
@@ -6483,6 +6416,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:folds/state/app_store.dart';
 import 'puzzle_selector_screen.dart';
+import 'package:folds/core/constants.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUZZLE SIZE CARD (used by PilotPackDetailScreen)
@@ -6812,7 +6746,7 @@ class HolidayPackBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final unlockDate = DateTime(2026, 06, 10);
+    final unlockDate = kHolidayPackUnlockDate;
     final now = DateTime.now();
     final isUnlocked = !now.isBefore(unlockDate);
     final daysLeft = unlockDate.difference(now).inDays + 1;
@@ -9105,6 +9039,7 @@ class FoldsTheme {
 import 'package:folds/state/app_settings.dart';
 import 'package:audioplayers/audioplayers.dart'; 
 import 'package:folds/state/app_store.dart';
+import 'package:flutter/material.dart';
 
 
 class AudioService {
@@ -9122,10 +9057,14 @@ class AudioService {
   await _sfx.setVolume(AppSettings.sfxVolume);
 }
   
-  // static Future<void> startMusic() async {
-  //  if (!AppSettings.musicEnabled) return;
-  //  await _music.play(AssetSource('sounds/bgm.mp3'));
-  // }
+  static Future<void> startMusic() async {
+    if (!AppSettings.musicEnabled) return;
+    try {
+      await _music.play(AssetSource('sounds/bgm.mp3'));
+    } catch (e) {
+    debugPrint('Music playback failed: $e');
+    }
+  }
 
   static Future<void> stopMusic() async => await _music.stop();
   static Future<void> pauseMusic() async => await _music.pause();
@@ -10364,7 +10303,7 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
                     // Also morphs size portrait→landscape and darkens to the solved colour.
                     final tt = _turnCtrl.value.clamp(0.0, 1.0);
                     final eased = Curves.easeInOutCubic.transform(tt);
-                    final angle = eased * (math.pi / 2); // quarter turn, flat in the screen plane
+                    final angle = math.sin(eased * math.pi) * (math.pi / 5);// quarter turn, flat in the screen plane
 
                     final w = lerpDouble(foldedWidth, finalWidth, eased)!;
                     final h = lerpDouble(startHeight, finalHeight, eased)!;

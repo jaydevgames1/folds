@@ -14,7 +14,7 @@ class AppStore {
     await _p?.setString('username', name);
   }
 
-  static bool isDeveloperMode = false;
+  
   static SharedPreferences? _p;
 
   static int get themeMode => _p?.getInt('themeMode') ?? 2;

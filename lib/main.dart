@@ -8,6 +8,7 @@ import 'services/audio_service.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/gameplay_screen.dart';
 import 'screens/splash/startup_splash_screen.dart';
+import 'package:folds/widgets/shared/offline_banner.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,6 +61,7 @@ class FoldsAppState extends State<FoldsApp> with WidgetsBindingObserver {
       title: 'Folds',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(),
+      builder: (context, child) => OfflineBannerListener(child: child!),
       home: showSplash ? StartupSplashScreen(next: home) : home,
     );
   }

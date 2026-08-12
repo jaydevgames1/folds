@@ -278,70 +278,7 @@ class ProfileTabState extends State<ProfileTab> {
               label: '$xp XP total'),
               
           // ── SECRET DEV PANEL ───────────────────────────────────────────
-          if (AppStore.isDeveloperMode) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFAEC),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFD465), width: 1.5),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    '🛠️ DEV PANEL:',
-                    style: GoogleFonts.dmSans(
-                      fontSize: 12, 
-                      fontWeight: FontWeight.w800, 
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const Spacer(),
-                  // ADD +5K
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        AppStore.totalXP = AppStore.totalXP + 5000;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C2C),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '+5K XP',
-                        style: GoogleFonts.dmSans(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // MULTIPLY x2
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        AppStore.totalXP = AppStore.totalXP * 2;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C2C),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '×2 MULTIPLY',
-                        style: GoogleFonts.dmSans(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
+          
           _divider(),
           
 
@@ -356,30 +293,24 @@ class ProfileTabState extends State<ProfileTab> {
                   style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black)),
                 GestureDetector(
                   onTap: () {
-                    // Navigate to first uncompleted puzzle in recent pack
-                    if (recentPack == 'PILOT') {
-                      // Find first uncompleted p-series puzzle
-                      String targetId = 'p1';
-                      for (int i = 1; i <= 100; i++) {
-                        if (!AppStore.isCompleted('p$i')) {
-                          targetId = 'p$i';
-                          break;
-                        }
-                      }
-                      Navigator.pushAndRemoveUntil(
-                        context,
-                        PageRouteBuilder(
-                          pageBuilder: (_, __, ___) => GameplayScreen(initialPuzzleId: targetId),
-                          transitionsBuilder: (_, animation, __, child) {
-                            final slide = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero)
-                                .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-                            return SlideTransition(position: slide, child: child);
-                          },
-                          transitionDuration: const Duration(milliseconds: 320),
-                        ),
-                        (route) => false,
-                      );
-                    }
+                    // AFTER
+onTap: () {
+  String prefix = recentPack == 'PILOT' ? 'p' : 'r';
+  int max = recentPack == 'PILOT' ? 100 : 100;
+  String targetId = '${prefix}1';
+  for (int i = 1; i <= max; i++) {
+    if (!AppStore.isCompleted('$prefix$i')) { targetId = '$prefix$i'; break; }
+  }
+  Navigator.pushAndRemoveUntil(context, PageRouteBuilder(
+    pageBuilder: (_, __, ___) => GameplayScreen(initialPuzzleId: targetId),
+    transitionsBuilder: (_, animation, __, child) {
+      final slide = Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero)
+          .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+      return SlideTransition(position: slide, child: child);
+    },
+    transitionDuration: const Duration(milliseconds: 320),
+  ), (route) => false);
+};
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
