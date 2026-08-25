@@ -37,124 +37,174 @@ class AuthScreenState extends State<AuthScreen> {
     return u != null && u.isAnonymous;
   }
 
-  Future<void> _authenticate() async {
-    setState(() => _isLoading = true);
-    try {
-      final anon = AppStore.currentUser;
-      final wasAnonymous = anon != null && anon.isAnonymous;
+  // auth_screen.dart — replace the whole _isSignUp branch of _authenticate()
 
-      if (_isSignUp) {
-        if (_usernameController.text.trim().isEmpty) {
-          throw Exception('Please choose a username.');
-        }
-        final available = await AppStore.isUsernameAvailable(_usernameController.text.trim());
-        if (!available) {
-          throw Exception('That username is already taken. Please choose another.');
-        }
+Future<void> _authenticate() async {
+  setState(() => _isLoading = true);
+  try {
+    final anon = AppStore.currentUser;
+    final wasAnonymous = anon != null && anon.isAnonymous;
 
-        if (wasAnonymous && _keepProgress) {
-          // Upgrade the existing anonymous user in place — same id, same
-          // profile row, same XP. Nothing to re-download or restart.
-          await Supabase.instance.client.auth.updateUser(UserAttributes(
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-            data: {'username': _usernameController.text.trim()},
-          ));
-          final uid = anon.id;
-          final d = DateTime.now();
-          const months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
-              'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
-          final joinStr = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
-          await Supabase.instance.client.from('profiles').update({
-            'username': _usernameController.text.trim(),
-            'join_date': joinStr,
-          }).eq('id', uid);
-        } else {
-          // Fresh account, "Create Account & Sign In" in one step.
-          await Supabase.instance.client.auth.signUp(
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-            data: {'username': _usernameController.text.trim()},
-          );
-          try {
-            await Supabase.instance.client.auth.signInWithPassword(
-              email: _emailController.text.trim(),
-              password: _passwordController.text,
-            );
-            final uid = Supabase.instance.client.auth.currentUser?.id;
-            if (uid != null) {
-              final d = DateTime.now();
-              const months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
-                  'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
-              final joinStr = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
-              await Supabase.instance.client.from('profiles').update({
-                'join_date': joinStr,
-                'username': _usernameController.text.trim(),
-              }).eq('id', uid);
-            }
-          } catch (_) {
-            // Email confirmation required — account exists, they'll verify first.
-          }
-        }
+    if (_isSignUp) {
+      if (_usernameController.text.trim().isEmpty) {
+        throw Exception('Please choose a username.');
+      }
+      final username = _usernameController.text.trim();
+      final email = _emailController.text.trim();
+
+      final available = await AppStore.isUsernameAvailable(username);
+      if (!available) {
+        throw Exception('That username is already taken. Please choose another.');
+      }
+
+      const months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
+          'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+      final d = DateTime.now();
+      final joinStr = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
+
+      if (wasAnonymous && _keepProgress) {
+        // Upgrade the existing anonymous account in place.
+        final userResp = await Supabase.instance.client.auth.updateUser(UserAttributes(
+          email: email,
+          password: _passwordController.text,
+          data: {'username': username},
+        ));
+
+        await Supabase.instance.client.from('profiles').update({
+          'username': username,
+          'join_date': joinStr,
+        }).eq('id', anon.id);
+
+        // If Supabase queued a confirmation for the new email, the account
+        // isn't fully "theirs" yet — say so instead of claiming success.
+        final needsConfirmation = userResp.user?.emailConfirmedAt == null;
         await AppStore.downloadCloudProfile();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Welcome to the Fold! You\'re signed in.')));
+
+        if (!mounted) return;
+        if (needsConfirmation) {
+          _showCheckEmailDialog(email);
+        } else {
           Navigator.pop(context, true);
         }
-      // _authenticate()'s sign-in (else) branch — replace entirely with:
-} else {
-  final rootNavigator = Navigator.of(context, rootNavigator: true);
-  final input = _emailController.text.trim();
-  try {
-    final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+        setState(() => _isLoading = false);
+        return;
+      }
 
-    rootNavigator.pushAndRemoveUntil(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-        transitionDuration: const Duration(milliseconds: 200),
-      ),
-      (route) => false,
-    );
+      // Fresh account.
+      final response = await Supabase.instance.client.auth.signUp(
+        email: email,
+        password: _passwordController.text,
+        data: {'username': username},
+      );
 
-    try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
-    await Supabase.instance.client.auth.signInWithPassword(
-      email: email,
-      password: _passwordController.text,
-    );
-    await AppStore.wipeLocalProfileData();
-    await AppStore.downloadCloudProfile();
+      if (response.session == null) {
+        // No session back = email confirmation is required. Nothing is
+        // signed in yet — tell the user clearly instead of pretending.
+        if (!mounted) return;
+        _showCheckEmailDialog(email);
+        setState(() => _isLoading = false);
+        return;
+      }
 
-    rootNavigator.pushAndRemoveUntil(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const GameplayScreen(),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-        transitionDuration: const Duration(milliseconds: 350),
-      ),
-      (route) => false,
-    );
+      // Confirmations are off for this project — we're actually signed in.
+      final uid = response.user!.id;
+      await Supabase.instance.client.from('profiles').update({
+        'username': username,
+        'join_date': joinStr,
+      }).eq('id', uid);
+      await AppStore.wipeLocalProfileData();
+      await AppStore.downloadCloudProfile();
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const GameplayScreen(),
+          transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+          transitionDuration: const Duration(milliseconds: 350),
+        ),
+        (route) => false,
+      );
+      return;
+    } else {
+      // ── Sign-in branch stays exactly as you have it — it was already correct. ──
+      final rootNavigator = Navigator.of(context, rootNavigator: true);
+      final input = _emailController.text.trim();
+      try {
+        final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+        rootNavigator.pushAndRemoveUntil(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
+            transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+            transitionDuration: const Duration(milliseconds: 200),
+          ),
+          (route) => false,
+        );
+        try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
+        await Supabase.instance.client.auth.signInWithPassword(email: email, password: _passwordController.text);
+        await AppStore.wipeLocalProfileData();
+        await AppStore.downloadCloudProfile();
+        rootNavigator.pushAndRemoveUntil(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const GameplayScreen(),
+            transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+            transitionDuration: const Duration(milliseconds: 350),
+          ),
+          (route) => false,
+        );
+      } catch (e) {
+        rootNavigator.pushAndRemoveUntil(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => AuthScreen(errorMessage: e.toString()),
+            transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+            transitionDuration: const Duration(milliseconds: 200),
+          ),
+          (route) => false,
+        );
+      }
+      return;
+    }
   } catch (e) {
-    // The old AuthScreen context is gone by now, so we can't snackbar on it —
-    // bounce to a fresh AuthScreen that shows the error instead of hanging.
-    rootNavigator.pushAndRemoveUntil(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => AuthScreen(errorMessage: e.toString()),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-        transitionDuration: const Duration(milliseconds: 200),
-      ),
-      (route) => false,
-    );
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
   }
-  return;
+  if (mounted) setState(() => _isLoading = false);
 }
 
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
-    }
-    if (mounted) setState(() => _isLoading = false);
-  }
-
+void _showCheckEmailDialog(String email) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colors.white,
+      title: Text('Check Your Email', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 20)),
+      content: Text(
+        'We sent a confirmation link to $email. Tap it to finish setting up your account — '
+        'your progress is safe and will be waiting when you come back.',
+        style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54)),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            try {
+              await Supabase.instance.client.auth.resend(type: OtpType.signup, email: email);
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Confirmation email resent.')));
+              }
+            } catch (_) {}
+          },
+          child: Text('Resend Email', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+          onPressed: () {
+            Navigator.pop(ctx);   // close dialog
+            Navigator.pop(context); // back out of AuthScreen — nothing to refresh, they're still a guest
+          },
+          child: Text('Got It', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(

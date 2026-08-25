@@ -55,7 +55,7 @@ class OfflineBannerListenerState extends State<OfflineBannerListener> {
                     decoration: BoxDecoration(
                       color: const Color(0xFFE6543A),
                       borderRadius: BorderRadius.circular(14),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 12, offset: const Offset(0, 4))],
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 12, offset: const Offset(0, 4))],
                     ),
                   child: Row(children: [
                     const Icon(Icons.cloud_off_rounded, color: Colors.white, size: 18),

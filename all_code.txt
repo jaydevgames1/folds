@@ -7,12 +7,18 @@ int foldsDayNumberFor(DateTime date) {
   final diff = clean.difference(kFoldsLaunchDate).inDays;
   return diff >= 0 ? diff + 1 : diff;
 }-e \n\n// ===== FILE: lib/core/constants.dart =====
+const String kDevPassword = "ilovefoldy";
 final DateTime kFoldsLaunchDate = DateTime(2026, 11, 1);
 final DateTime kHolidayPackUnlockDate = DateTime(2026, 12, 10);
-
 int foldsDayNumberFor(DateTime date) {
   final clean = DateTime(date.year, date.month, date.day);
   final diff = clean.difference(kFoldsLaunchDate).inDays;
+  return diff >= 0 ? diff + 1 : diff;
+}
+
+int HolidayPackUnlockDate(DateTime date) {
+  final clean = DateTime(date.year, date.month, date.day);
+  final diff = clean.difference(kHolidayPackUnlockDate).inDays;
   return diff >= 0 ? diff + 1 : diff;
 }-e \n\n// ===== FILE: lib/painters/store_shape_painters.dart =====
 import 'package:flutter/material.dart';
@@ -1090,7 +1096,7 @@ import 'package:folds/state/app_settings.dart';
 import 'package:folds/services/audio_service.dart';
 import 'package:folds/widgets/shared/misc.dart';
 import 'package:folds/screens/onboarding/onboarding_screen.dart';
-import 'package:folds/screens/settings/dev_screen.dart';
+import 'package:folds/screens/settings/dev/dev_screen.dart';
 import 'texture_packs_screen.dart';
 import 'package:folds/screens/social/credits_screen.dart';
 import 'package:folds/screens/moderation/moderator_panel_screen.dart';
@@ -1560,18 +1566,479 @@ class SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-}-e \n\n// ===== FILE: lib/screens/settings/dev_screen.dart =====
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_notifications_screen.dart =====
+// ===== FILE: lib/screens/settings/dev/dev_notifications_screen.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:folds/core/constants.dart';
-import 'package:folds/state/app_store.dart';
-import 'package:folds/models/xp_system.dart';
-import 'package:folds/screens/gameplay_screen.dart';
-import 'package:folds/widgets/shared/buttons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/state/app_store.dart';
 import 'package:folds/widgets/recipient_picker.dart';
-import 'package:folds/models/texture_pack_def.dart';
+import 'dev_widgets.dart';
 
+class DevNotificationsScreen extends StatefulWidget {
+  const DevNotificationsScreen({super.key});
+  @override
+  State<DevNotificationsScreen> createState() => DevNotificationsScreenState();
+}
+
+class DevNotificationsScreenState extends State<DevNotificationsScreen> {
+  final _titleCtrl = TextEditingController();
+  final _bodyCtrl = TextEditingController();
+  String _recipient = 'all';
+  String? _background;
+  static const _bgOptions = {'Default': Color(0xFFEFEFEF), 'Gold': Color(0xFFFFD465),
+    'Green': Color(0xFF7BD957), 'Blue': Color(0xFF5865F2), 'Red': Color(0xFFE6543A)};
+
+  @override
+  Widget build(BuildContext context) {
+    return DevSectionScaffold(
+      title: 'Notifications', accent: const Color(0xFFFFD465), icon: Icons.campaign_rounded,
+      child: ListView(padding: const EdgeInsets.all(20), children: [
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextField(controller: _titleCtrl, decoration: InputDecoration(hintText: 'Title',
+            filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+          const SizedBox(height: 10),
+          TextField(controller: _bodyCtrl, maxLines: 3, decoration: InputDecoration(hintText: 'Message',
+            filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+          const SizedBox(height: 14),
+          Text('RECIPIENT', style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 6),
+          RecipientPicker(initial: 'all', onSelected: (v) => _recipient = v),
+          const SizedBox(height: 14),
+          Text('BACKGROUND', style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: _bgOptions.entries.map((e) {
+            final selected = _background == e.key || (_background == null && e.key == 'Default');
+            return GestureDetector(
+              onTap: () => setState(() => _background = e.key == 'Default' ? null : e.key),
+              child: Container(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(color: e.value, borderRadius: BorderRadius.circular(10),
+                  border: selected ? Border.all(color: Colors.black, width: 2) : null),
+                child: Text(e.key, style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700))),
+            );
+          }).toList()),
+          const SizedBox(height: 16),
+          DevPrimaryButton(label: 'SEND', color: const Color(0xFF2C2C2C), icon: Icons.send_rounded, onTap: () async {
+            if (_titleCtrl.text.trim().isEmpty) { devToast(context, 'Enter a title', error: true); return; }
+            if (!await isValidRecipient(_recipient)) { devToast(context, 'No profile found for "$_recipient"', error: true); return; }
+            try {
+              await Supabase.instance.client.from('notifications').insert({
+                'title': _titleCtrl.text.trim(), 'body': _bodyCtrl.text.trim(),
+                'recipient': _recipient, 'author': AppStore.displayUsername,
+                'background': _background, 'created_at': DateTime.now().toIso8601String(),
+              });
+              devToast(context, 'Notification sent to $_recipient');
+              _titleCtrl.clear(); _bodyCtrl.clear();
+            } catch (e) { devToast(context, '$e', error: true); }
+          }),
+        ])),
+      ]),
+    );
+  }
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_profiles_screen.dart =====
+// ===== FILE: lib/screens/settings/dev/dev_profiles_screen.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/models/xp_system.dart';
+import 'package:folds/models/achievement_def.dart';
+import 'package:folds/widgets/profile_search_field.dart';
+import 'package:folds/widgets/moderation/leaderboard_ban_sheet.dart';
+import 'package:folds/widgets/shared/folds_dialog.dart';
+import 'dev_widgets.dart';
+
+class DevProfilesScreen extends StatefulWidget {
+  const DevProfilesScreen({super.key});
+  @override
+  State<DevProfilesScreen> createState() => DevProfilesScreenState();
+}
+
+class DevProfilesScreenState extends State<DevProfilesScreen> {
+  Map<String, dynamic>? _profile;
+  bool _loading = false;
+
+  Future<void> _load(String username) async {
+    setState(() => _loading = true);
+    try {
+      final data = await Supabase.instance.client.from('profiles').select().eq('username', username).maybeSingle();
+      setState(() { _profile = data; _loading = false; });
+      if (data == null && mounted) devToast(context, 'No profile found for "$username"', error: true);
+    } catch (e) {
+      setState(() => _loading = false);
+      if (mounted) devToast(context, '$e', error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DevSectionScaffold(
+      title: 'Profiles', accent: const Color(0xFFE6543A), icon: Icons.badge_rounded,
+      child: ListView(padding: const EdgeInsets.all(20), children: [
+        ProfileSearchField(hint: 'Search any username...', onSelected: _load),
+        const SizedBox(height: 18),
+        if (_loading) const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator())),
+        if (!_loading && _profile != null) _ProfileDetail(profile: _profile!, onChanged: () => _load(_profile!['username'])),
+      ]),
+    );
+  }
+}
+
+class _ProfileDetail extends StatelessWidget {
+  final Map<String, dynamic> profile;
+  final VoidCallback onChanged;
+  const _ProfileDetail({required this.profile, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final username = profile['username']?.toString() ?? '';
+    final xp = (profile['total_xp'] as int?) ?? 0;
+    final rank = XPSystem.rankFromXP(xp);
+    final avatarPath = profile['avatar_path'] as String?;
+    final isNetwork = avatarPath != null && avatarPath.startsWith('http');
+    final isMod = (profile['is_moderator'] as bool?) ?? false;
+    final isDev = (profile['is_dev_profile'] as bool?) ?? false;
+    final isLbBanned = (profile['is_leaderboard_banned'] as bool?) ?? false;
+    final isBanned = (profile['is_banned'] as bool?) ?? false;
+    final unlocked = List<String>.from(profile['unlocked_achievements'] ?? []);
+    final completed = List<String>.from(profile['completed_puzzles'] ?? []);
+
+    return Column(children: [
+      DevCard(child: Column(children: [
+        Row(children: [
+          Container(width: 60, height: 60,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFEFEFEF),
+              image: isNetwork ? DecorationImage(image: NetworkImage(avatarPath), fit: BoxFit.cover) : null),
+            child: !isNetwork ? const Icon(Icons.person_rounded, color: Colors.black26, size: 32) : null),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Flexible(child: Text(username, style: GoogleFonts.dmSans(fontSize: 19, fontWeight: FontWeight.w800))),
+              if (isDev) _Badge('DEV', const Color(0xFF5865F2)),
+              if (isMod && !isDev) _Badge('MOD', const Color(0xFFFFD465), dark: true),
+              if (isLbBanned) _Badge('LB BAN', Colors.red),
+              if (isBanned) _Badge('BANNED', Colors.black),
+            ]),
+            Text(profile['join_date']?.toString() ?? '—', style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black45)),
+          ])),
+        ]),
+      ])),
+      DevCard(child: Row(children: [
+        _StatBox(label: 'XP', value: '$xp'),
+        _StatBox(label: 'Rank', value: '$rank'),
+        _StatBox(label: 'Streak', value: '${profile['current_streak'] ?? 0}'),
+        _StatBox(label: 'Flips', value: '${profile['total_flips'] ?? 0}'),
+      ])),
+      DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('COMPLETED PUZZLES · ${completed.length}', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+        const SizedBox(height: 6),
+        Text('ACHIEVEMENTS UNLOCKED · ${unlocked.length} / ${appAchievements.length}', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+        const SizedBox(height: 10),
+        Wrap(spacing: 6, runSpacing: 6, children: unlocked.map((id) {
+          final def = appAchievements.firstWhere((a) => a.id == id, orElse: () => AchievementDef(id, id, '', Icons.star));
+          return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(color: const Color(0xFFF0F0F0), borderRadius: BorderRadius.circular(10)),
+            child: Text(def.title, style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700)));
+        }).toList()),
+      ])),
+      if ((profile['leaderboard_ban_reason'] ?? profile['banned_reason']) != null)
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('BAN NOTES', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.red, letterSpacing: 1)),
+          const SizedBox(height: 6),
+          if (profile['leaderboard_ban_reason'] != null)
+            Text('Leaderboard: ${profile['leaderboard_ban_reason']}', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
+          if (profile['banned_reason'] != null)
+            Text('Full ban: ${profile['banned_reason']}', style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54)),
+        ])),
+      DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('ACTIONS', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: DevPrimaryButton(
+            label: isLbBanned ? 'Lift LB Ban' : 'Leaderboard Ban',
+            color: isLbBanned ? const Color(0xFF4CAF50) : Colors.red.shade400,
+            icon: Icons.leaderboard_rounded,
+            onTap: () => showLeaderboardBanSheet(context, username: username, isCurrentlyBanned: isLbBanned, onDone: onChanged),
+          )),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: DevPrimaryButton(
+            label: isBanned ? 'Unban from Game' : 'Ban from Game',
+            color: isBanned ? const Color(0xFF4CAF50) : Colors.black,
+            icon: Icons.gavel_rounded,
+            onTap: () => _confirmGameBan(context, username, isBanned, onChanged),
+          )),
+        ]),
+      ])),
+    ]);
+  }
+
+  void _confirmGameBan(BuildContext context, String username, bool isBanned, VoidCallback onDone) {
+    if (isBanned) {
+      showFoldsDialog(context,
+        title: 'Unban $username?',
+        message: 'They will be able to sign in and play again immediately.',
+        icon: Icons.gavel_rounded, iconColor: const Color(0xFF4CAF50),
+        actions: [
+          FoldsDialogAction(label: 'Cancel', onTap: () {}),
+          FoldsDialogAction(label: 'Unban', isPrimary: true, color: const Color(0xFF4CAF50), onTap: () async {
+            try {
+              await Supabase.instance.client.rpc('unban_user_from_game', params: {'target_username': username});
+              onDone();
+            } catch (_) {}
+          }),
+        ],
+      );
+      return;
+    }
+    final reasonCtrl = TextEditingController();
+    showFoldsDialog(context,
+      title: 'Ban $username from the game?',
+      content: TextField(controller: reasonCtrl, maxLines: 3, decoration: InputDecoration(
+        hintText: 'Reason for the ban...', filled: true, fillColor: const Color(0xFFF5F5F5),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+      icon: Icons.gavel_rounded, iconColor: Colors.red,
+      actions: [
+        FoldsDialogAction(label: 'Cancel', onTap: () {}),
+        FoldsDialogAction(label: 'Ban', isPrimary: true, color: Colors.red, onTap: () async {
+          try {
+            await Supabase.instance.client.rpc('ban_user_from_game',
+              params: {'target_username': username, 'reason': reasonCtrl.text.trim()});
+            onDone();
+          } catch (_) {}
+        }),
+      ],
+    );
+  }
+}
+
+class _Badge extends StatelessWidget {
+  final String label; final Color color; final bool dark;
+  const _Badge(this.label, this.color, {this.dark = false});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 6),
+    child: Container(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6)),
+      child: Text(label, style: GoogleFonts.dmSans(fontSize: 9, fontWeight: FontWeight.w800, color: dark ? Colors.black : Colors.white))),
+  );
+}
+
+class _StatBox extends StatelessWidget {
+  final String label, value;
+  const _StatBox({required this.label, required this.value});
+  @override
+  Widget build(BuildContext context) => Expanded(child: Column(children: [
+    Text(value, style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800)),
+    Text(label, style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black38, fontWeight: FontWeight.w600)),
+  ]));
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_widgets.dart =====
+// ===== FILE: lib/screens/settings/dev/dev_widgets.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+class DevToolCard extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+  const DevToolCard({required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
+  @override
+  State<DevToolCard> createState() => DevToolCardState();
+}
+
+class DevToolCardState extends State<DevToolCard> {
+  double _scale = 1;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _scale = 0.96),
+      onTapCancel: () => setState(() => _scale = 1),
+      onTapUp: (_) => setState(() => _scale = 1),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _scale, duration: const Duration(milliseconds: 100),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [widget.color, widget.color.withValues(alpha: 0.75)],
+              begin: Alignment.topLeft, end: Alignment.bottomRight),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [BoxShadow(color: widget.color.withValues(alpha: 0.35), blurRadius: 14, offset: const Offset(0, 6))],
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(widget.icon, color: Colors.white, size: 30),
+            const Spacer(),
+            Text(widget.title, style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+            const SizedBox(height: 2),
+            Text(widget.subtitle, style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white70)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class DevSectionScaffold extends StatelessWidget {
+  final String title;
+  final Color accent;
+  final IconData icon;
+  final Widget child;
+  const DevSectionScaffold({required this.title, required this.accent, required this.icon, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [accent, accent.withValues(alpha: 0.8)],
+                begin: Alignment.topLeft, end: Alignment.bottomRight),
+              borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(28), bottomRight: Radius.circular(28)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                  onPressed: () => Navigator.pop(context)),
+                const Spacer(),
+              ]),
+              Row(children: [
+                Container(width: 44, height: 44,
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(14)),
+                  child: Icon(icon, color: Colors.white, size: 22)),
+                const SizedBox(width: 12),
+                Text(title, style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+              ]),
+            ]),
+          ),
+          Expanded(child: child),
+        ]),
+      ),
+    );
+  }
+}
+
+class DevCard extends StatelessWidget {
+  final Widget child;
+  const DevCard({required this.child});
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: 14),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(color: const Color(0xFFF7F7F7), borderRadius: BorderRadius.circular(18)),
+    child: child,
+  );
+}
+
+class DevPrimaryButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback? onTap;
+  final IconData? icon;
+  const DevPrimaryButton({required this.label, required this.onTap, this.color = const Color(0xFF2C2C2C), this.icon});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Opacity(
+      opacity: onTap == null ? 0.4 : 1,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(14)),
+        child: Center(child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (icon != null) ...[Icon(icon, color: Colors.white, size: 16), const SizedBox(width: 8)],
+          Text(label, style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+        ])),
+      ),
+    ),
+  );
+}
+
+class DevChipBtn extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  final Color? color;
+  const DevChipBtn({required this.label, required this.onTap, this.color});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: color ?? const Color(0xFFEAEAEA), borderRadius: BorderRadius.circular(12)),
+      child: Text(label, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
+        color: color != null ? Colors.white : Colors.black87)),
+    ),
+  );
+}
+
+void devToast(BuildContext context, String message, {bool error = false}) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(message, style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+    backgroundColor: error ? Colors.red : const Color(0xFF2C2C2C),
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  ));
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_streaks_screen.dart =====
+// ===== FILE: lib/screens/settings/dev/dev_streaks_screen.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:folds/state/app_store.dart';
+import 'package:folds/core/constants.dart';
+import 'dev_widgets.dart';
+
+class DevStreaksScreen extends StatelessWidget {
+  const DevStreaksScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return DevSectionScaffold(
+      title: 'Streaks', accent: const Color(0xFFFF8A3D), icon: Icons.local_fire_department_rounded,
+      child: ListView(padding: const EdgeInsets.all(20), children: [
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Current streak: ${AppStore.currentStreak} 🔥', style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            DevChipBtn(label: 'Set to 7', onTap: () { AppStore.devSetStreak(7); devToast(context, 'Streak set to 7'); }),
+            DevChipBtn(label: 'Set to 30', onTap: () { AppStore.devSetStreak(30); devToast(context, 'Streak set to 30'); }),
+            DevChipBtn(label: 'Set to 100', onTap: () { AppStore.devSetStreak(100); devToast(context, 'Streak set to 100'); }),
+            DevChipBtn(label: 'Reset', color: Colors.red.shade400, onTap: () { AppStore.devResetStreak(); devToast(context, 'Streak reset'); }),
+          ]),
+        ])),
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Today\'s daily puzzle', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          DevPrimaryButton(label: 'Mark Today Done', color: const Color(0xFFFF8A3D), icon: Icons.check_rounded, onTap: () {
+            final dayNumber = foldsDayNumberFor(DateTime.now());
+            if (dayNumber > 0) {
+              AppStore.markCompleted('d$dayNumber');
+              AppStore.updateStreak();
+              devToast(context, 'Day $dayNumber marked done, streak updated');
+            } else {
+              devToast(context, 'Folds hasn\'t launched yet (day $dayNumber)', error: true);
+            }
+          }),
+        ])),
+      ]),
+    );
+  }
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_screen.dart =====
+// ===== FILE: lib/screens/settings/dev_screen.dart (HUB — rewritten) =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/state/app_store.dart';
+import 'package:folds/core/constants.dart';
+import 'package:folds/screens/settings/dev/dev_puzzles_screen.dart';
+import 'package:folds/screens/settings/dev/dev_profiles_screen.dart';
+import 'package:folds/screens/settings/dev/dev_streaks_screen.dart';
+import 'package:folds/screens/settings/dev/dev_moderation_screen.dart';
+import 'package:folds/screens/settings/dev/dev_notifications_screen.dart';
+import 'package:folds/screens/settings/dev/dev_nuclear_screen.dart';
+import 'package:folds/screens/settings/dev/dev_widgets.dart';
 
 class DevPanelScreen extends StatefulWidget {
   const DevPanelScreen({super.key});
@@ -1579,11 +2046,10 @@ class DevPanelScreen extends StatefulWidget {
   State<DevPanelScreen> createState() => DevPanelScreenState();
 }
 
-// AFTER
-// AFTER
 class DevPanelScreenState extends State<DevPanelScreen> {
   bool _checking = true;
   bool _unlocked = false;
+  int _profileCount = 0;
 
   @override
   void initState() {
@@ -1595,305 +2061,367 @@ class DevPanelScreenState extends State<DevPanelScreen> {
     try {
       final result = await Supabase.instance.client.rpc('is_dev_user');
       final granted = result == true;
-      AppStore.isDevProfile = granted; // mirrors the server's verdict locally
+      AppStore.isDevProfile = granted;
+      if (granted) {
+        try {
+          final count = await Supabase.instance.client.from('profiles').select('id');
+          _profileCount = (count as List).length;
+        } catch (_) {}
+      }
       if (mounted) setState(() { _unlocked = granted; _checking = false; });
     } catch (e) {
       if (mounted) setState(() { _unlocked = false; _checking = false; });
     }
   }
 
-  void _confirm(String message, {bool error = false}) { /* unchanged */ }
-
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C))),
-      );
+      return const Scaffold(backgroundColor: Colors.white,
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF2C2C2C))));
     }
     if (!_unlocked) {
       return Scaffold(
         backgroundColor: Colors.white,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2C2C2C)),
-                const SizedBox(height: 16),
-                Text('Developer access is restricted',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 8),
-                Text('Only the JayDev account can open this panel.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black45)),
-                const SizedBox(height: 20),
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Go Back')),
-              ],
-            ),
-          ),
-        ),
+        body: SafeArea(child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Icon(Icons.lock_rounded, size: 48, color: Color(0xFF2C2C2C)),
+            const SizedBox(height: 16),
+            Text('Developer access is restricted', textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text('Only the JayDev account can open this panel.', textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black45)),
+            const SizedBox(height: 20),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Go Back')),
+          ]),
+        )),
       );
     }
-    // ... rest of the panel (tabs) unchanged
-    // ... rest of the panel (tabs) unchanged
 
-    return DefaultTabController(
-      length: 6,
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF2C2C2C),
-          title: Text('DEVELOPER PANEL', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
-          leading: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)),
-          bottom: TabBar(
-            isScrollable: true,
-            indicatorColor: const Color(0xFFFFD465),
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white38,
-            tabs: const [
-              Tab(text: 'XP & PUZZLES'), Tab(text: 'PACKS'), Tab(text: 'STREAKS'),
-              Tab(text: 'MODERATORS'), Tab(text: 'NOTIFICATIONS'), Tab(text: 'NUCLEAR'),
-            ],
-          ),
-        ),
-        body: TabBarView(children: [
-          _buildXpTab(), _buildPacksTab(), _buildStreaksTab(),
-          _buildModTab(), _buildNotifTab(), _buildNuclearTab(),
-        ]),
-      ),
-    );
-  }
-
-  Widget _buildXpTab() {
-    final xpCtrl = TextEditingController();
-    final idCtrl = TextEditingController();
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        DevLabel('XP — Current: ${AppStore.totalXP} (Rank ${XPSystem.rankFromXP(AppStore.totalXP)})'),
-        Row(children: [
-          Expanded(child: TextField(controller: xpCtrl, keyboardType: TextInputType.number,
-            decoration: InputDecoration(hintText: 'XP to add', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))))),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
-            onPressed: () async {
-              final amt = int.tryParse(xpCtrl.text) ?? 0;
-              try {
-                await Supabase.instance.client.rpc('admin_add_xp',
-                  params: {'target_username': AppStore.displayUsername, 'amount': amt});
-                await AppStore.downloadCloudProfile();
-                xpCtrl.clear();
-                if (mounted) setState(() {});
-                _confirm('Added $amt XP, total ${AppStore.totalXP}');
-              } catch (e) {
-                _confirm('$e', error:true);
-              }
-},
-            child: Text('Add', style: GoogleFonts.dmSans(color: Colors.white)),
-          ),
-        ]),
-        DevLabel('SPECIFIC PUZZLE'),
-        TextField(controller: idCtrl, decoration: InputDecoration(
-          hintText: 'e.g. p1, r5, d3, x12', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
-        const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          DevChip(label: 'Complete ✓', onTap: () {
-            final id = idCtrl.text.trim().toLowerCase();
-            if (id.isEmpty) { _confirm('Enter a puzzle ID first', error: true); return; }
-            AppStore.markCompleted(id); AppStore.markParCompleted(id);
-            _confirm('$id marked complete');
-          }),
-          DevChip(label: 'Open Puzzle', onTap: () {
-            final id = idCtrl.text.trim().toLowerCase();
-            if (id.isEmpty) { _confirm('Enter a puzzle ID first', error: true); return; }
-            Navigator.push(context, MaterialPageRoute(builder: (_) => GameplayScreen(initialPuzzleId: id)));
-          }),
-        ]),
-      ]),
-    );
-  }
-
-  Widget _buildPacksTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          DevChip(label: 'All Pilot ✓', onTap: () {
-            for (int i = 1; i <= 100; i++) { AppStore.markCompleted('p$i'); AppStore.markParCompleted('p$i'); }
-            _confirm('Pilot pack completed');
-          }),
-          DevChip(label: 'All Rectangle ✓', onTap: () {
-            for (int i = 1; i <= 100; i++) { AppStore.markCompleted('r$i'); AppStore.markParCompleted('r$i'); }
-            _confirm('Rectangle pack completed');
-          }),
-          DevChip(label: 'All Holiday ✓', onTap: () {
-            for (int i = 1; i <= 25; i++) { AppStore.markCompleted('x$i'); AppStore.markParCompleted('x$i'); }
-            _confirm('Holiday pack completed');
-          }),
-        ]),
-        DevLabel('TEXTURE PACKS'),
-        Wrap(spacing: 8, runSpacing: 8, children: texturePacks.where((t) => !t.isDefault).map((t) =>
-          DevChip(label: 'Unlock ${t.name}', onTap: () {
-            AppStore.unlockTexturePack(t.id.name);
-            _confirm('${t.name} unlocked');
-          })).toList()),
-      ]),
-    );
-  }
-
-  Widget _buildStreaksTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Wrap(spacing: 8, runSpacing: 8, children: [
-        DevChip(label: '🔥 Set 7', onTap: () { AppStore.devSetStreak(7); _confirm('Streak set to 7'); }),
-        DevChip(label: '🔥 Set 30', onTap: () { AppStore.devSetStreak(30); _confirm('Streak set to 30'); }),
-        DevChip(label: 'Reset Streak', onTap: () { AppStore.devResetStreak(); _confirm('Streak reset'); }),
-        DevChip(label: 'Mark Daily Done', onTap: () {
-          final dayNumber = foldsDayNumberFor(DateTime.now());
-          if (dayNumber > 0) {
-            AppStore.markCompleted('d$dayNumber');
-            AppStore.updateStreak();
-            _confirm('Day $dayNumber marked done, streak updated');
-          } else {
-            _confirm('Folds hasn\'t launched yet (day $dayNumber)', error: true);
-          }
-        }),
-      ]),
-    );
-  }
-
-  Widget _buildModTab() {
-    final modCtrl = TextEditingController();
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        TextField(controller: modCtrl, decoration: InputDecoration(
-          hintText: 'Username', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
-        const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          DevChip(label: '✓ Approve Mod', onTap: () async {
-            final u = modCtrl.text.trim();
-            if (u.isEmpty) { _confirm('Enter a username', error: true); return; }
-            try {
-              await Supabase.instance.client.rpc('approve_moderator', params: {'target_username': u});
-              _confirm('$u approved as moderator');
-            } catch (e) { _confirm('$e', error: true); }
-          }),
-          DevChip(label: '✕ Revoke Mod', onTap: () async {
-            final u = modCtrl.text.trim();
-            if (u.isEmpty) { _confirm('Enter a username', error: true); return; }
-            try {
-              await Supabase.instance.client.rpc('revoke_moderator', params: {'target_username': u});
-              _confirm('$u revoked');
-            } catch (e) { _confirm('$e', error: true); }
-          }),
-        ]),
-      ]),
-    );
-  }
-
-  Widget _buildNotifTab() {
-    final titleCtrl = TextEditingController();
-    final bodyCtrl = TextEditingController();
-    String recipient = 'all';
-    String? background;
-    const bgOptions = <String, Color>{
-      'Default': Color(0xFFEFEFEF),
-      'Gold': Color(0xFFFFD465),
-      'Green': Color(0xFF7BD957),
-      'Blue': Color(0xFF5865F2),
-      'Red': Color(0xFFE6543A),
-    };
-    return StatefulBuilder(
-      builder: (context, setLocal) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            DevLabel('SEND NOTIFICATION'),
-            TextField(controller: titleCtrl, decoration: InputDecoration(
-              hintText: 'Title', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
-            const SizedBox(height: 8),
-            TextField(controller: bodyCtrl, maxLines: 3, decoration: InputDecoration(
-              hintText: 'Message', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
-            const SizedBox(height: 12),
-            DevLabel('RECIPIENT'),
-            RecipientPicker(initial: 'all', onSelected: (v) => recipient = v),
-            const SizedBox(height: 12),
-            DevLabel('BACKGROUND'),
-            Wrap(spacing: 8, runSpacing: 8, children: bgOptions.entries.map((e) {
-              final isSelected = background == e.key || (background == null && e.key == 'Default');
-              return GestureDetector(
-                onTap: () => setLocal(() => background = e.key == 'Default' ? null : e.key),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: e.value,
-                    borderRadius: BorderRadius.circular(10),
-                    border: isSelected ? Border.all(color: Colors.black, width: 2) : null,
-                  ),
-                  child: Text(e.key, style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700)),
-                ),
-              );
-            }).toList()),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C2C2C)),
-              onPressed: () async {
-                if (titleCtrl.text.trim().isEmpty) { _confirm('Enter a title', error: true); return; }
-                if (!await isValidRecipient(recipient)) {
-                  _confirm('No profile found for "$recipient"', error: true);
-                  return;
-                }
-                try {
-                  await Supabase.instance.client.from('notifications').insert({
-                    'title': titleCtrl.text.trim(),
-                    'body': bodyCtrl.text.trim(),
-                    'recipient': recipient,
-                    'author': AppStore.displayUsername,
-                    'background': background,
-                    'created_at': DateTime.now().toIso8601String(),
-                  });
-                  _confirm('Notification sent to $recipient');
-                  titleCtrl.clear(); bodyCtrl.clear();
-                } catch (e) { _confirm('$e', error: true); }
-              },
-              child: Text('Send', style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w800)),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              IconButton(icon: const Icon(Icons.close_rounded, color: Colors.black), onPressed: () => Navigator.pop(context)),
+            ]),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF2C2C2C), Color(0xFF1D1D1D)],
+                  begin: Alignment.topLeft, end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  const Text('🛠️', style: TextStyle(fontSize: 28)),
+                  const SizedBox(width: 10),
+                  Text('DEV HQ', style: GoogleFonts.dmSans(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white)),
+                ]),
+                const SizedBox(height: 4),
+                Text('Welcome back, ${AppStore.displayUsername}.',
+                  style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 16),
+                Row(children: [
+                  _StatPill(label: 'Day', value: '#${foldsDayNumberFor(DateTime.now())}'),
+                  const SizedBox(width: 10),
+                  _StatPill(label: 'Profiles', value: '$_profileCount'),
+                  const SizedBox(width: 10),
+                  _StatPill(label: 'XP', value: '${AppStore.totalXP}'),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 22),
+            Text('TOOLS', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1.2)),
+            const SizedBox(height: 10),
+            GridView.count(
+              crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.15,
+              children: [
+                DevToolCard(icon: Icons.extension_rounded, title: 'Puzzles', subtitle: 'XP · completion · packs',
+                  color: const Color(0xFF5865F2), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DevPuzzlesScreen()))),
+                DevToolCard(icon: Icons.badge_rounded, title: 'Profiles', subtitle: 'Search · view · ban',
+                  color: const Color(0xFFE6543A), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DevProfilesScreen()))),
+                DevToolCard(icon: Icons.local_fire_department_rounded, title: 'Streaks', subtitle: 'Set · reset · daily',
+                  color: const Color(0xFFFF8A3D), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DevStreaksScreen()))),
+                DevToolCard(icon: Icons.shield_rounded, title: 'Moderation', subtitle: 'Mods · bans · log',
+                  color: const Color(0xFF7BD957), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DevModerationScreen()))),
+                DevToolCard(icon: Icons.campaign_rounded, title: 'Notifications', subtitle: 'Broadcast · targeted',
+                  color: const Color(0xFFFFD465), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DevNotificationsScreen()))),
+                DevToolCard(icon: Icons.warning_amber_rounded, title: 'Nuclear', subtitle: 'Danger zone',
+                  color: const Color(0xFFB71C1C), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DevNuclearScreen()))),
+              ],
             ),
           ]),
-        );
-      },
-    );
-  }
-
-  Widget _buildNuclearTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(children: [
-        DevBtn(label: '⚠️ Reset ALL Progress', textColor: Colors.red, onTap: () async {
-          final go = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-            title: const Text('Reset everything?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-              TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Confirm')),
-            ],
-          ));
-          if (go == true) { await AppStore.resetProgress(); _confirm('Progress wiped'); }
-        }),
-        DevBtn(label: '⚠️ Reset All Settings', textColor: Colors.orange, onTap: () async {
-          await AppStore.resetSettings();
-          _confirm('Settings reset');
-        }),
-      ]),
+        ),
+      ),
     );
   }
 }
 
--e \n\n// ===== FILE: lib/screens/splash/startup_splash_screen.dart =====
+class _StatPill extends StatelessWidget {
+  final String label, value;
+  const _StatPill({required this.label, required this.value});
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+    child: Column(children: [
+      Text(value, style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+      Text(label, style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white38)),
+    ]),
+  );
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_nuclear_screen.dart =====
+// ===== FILE: lib/screens/settings/dev/dev_nuclear_screen.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:folds/state/app_store.dart';
+import 'package:folds/widgets/shared/folds_dialog.dart';
+import 'dev_widgets.dart';
+
+class DevNuclearScreen extends StatelessWidget {
+  const DevNuclearScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return DevSectionScaffold(
+      title: 'Nuclear', accent: const Color(0xFFB71C1C), icon: Icons.warning_amber_rounded,
+      child: ListView(padding: const EdgeInsets.all(20), children: [
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('These reset YOUR account only, immediately, no undo.',
+            style: GoogleFonts.dmSans(fontSize: 13, color: Colors.red.shade400, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 14),
+          DevPrimaryButton(label: 'Reset ALL Progress', color: Colors.red, icon: Icons.delete_forever_rounded, onTap: () {
+            showFoldsDialog(context, title: 'Reset everything?',
+              message: 'XP, completed puzzles, achievements — all gone.',
+              icon: Icons.warning_amber_rounded, iconColor: Colors.red,
+              actions: [
+                FoldsDialogAction(label: 'Cancel', onTap: () {}),
+                FoldsDialogAction(label: 'Confirm', isPrimary: true, color: Colors.red, onTap: () async {
+                  await AppStore.resetProgress();
+                  devToast(context, 'Progress wiped');
+                }),
+              ]);
+          }),
+          const SizedBox(height: 10),
+          DevPrimaryButton(label: 'Reset All Settings', color: Colors.orange.shade700, icon: Icons.settings_backup_restore_rounded, onTap: () {
+            showFoldsDialog(context, title: 'Reset settings?',
+              message: 'All app settings return to defaults.',
+              icon: Icons.warning_amber_rounded, iconColor: Colors.orange,
+              actions: [
+                FoldsDialogAction(label: 'Cancel', onTap: () {}),
+                FoldsDialogAction(label: 'Confirm', isPrimary: true, color: Colors.orange.shade700, onTap: () async {
+                  await AppStore.resetSettings();
+                  devToast(context, 'Settings reset');
+                }),
+              ]);
+          }),
+        ])),
+      ]),
+    );
+  }
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_moderation_screen.dart =====
+// ===== FILE: lib/screens/settings/dev/dev_moderation_screen.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/widgets/profile_search_field.dart';
+import 'package:folds/widgets/moderation/leaderboard_ban_sheet.dart';
+import 'dev_widgets.dart';
+
+class DevModerationScreen extends StatefulWidget {
+  const DevModerationScreen({super.key});
+  @override
+  State<DevModerationScreen> createState() => DevModerationScreenState();
+}
+
+class DevModerationScreenState extends State<DevModerationScreen> {
+  final _modCtrl = TextEditingController();
+  List<Map<String, dynamic>> _recentActions = [];
+  bool _loadingLog = true;
+
+  @override
+  void initState() { super.initState(); _loadLog(); }
+
+  Future<void> _loadLog() async {
+    setState(() => _loadingLog = true);
+    try {
+      final data = await Supabase.instance.client.from('mod_actions').select()
+          .order('created_at', ascending: false).limit(25);
+      setState(() { _recentActions = List<Map<String, dynamic>>.from(data); _loadingLog = false; });
+    } catch (e) { setState(() => _loadingLog = false); }
+  }
+
+  IconData _iconFor(String type) => switch (type) {
+    'leaderboard_ban' => Icons.leaderboard_rounded,
+    'leaderboard_unban' => Icons.shield_rounded,
+    'game_ban' => Icons.gavel_rounded,
+    _ => Icons.shield_rounded,
+  };
+  Color _colorFor(String type) => type.contains('unban') ? const Color(0xFF4CAF50) : Colors.red;
+
+  @override
+  Widget build(BuildContext context) {
+    return DevSectionScaffold(
+      title: 'Moderation', accent: const Color(0xFF7BD957), icon: Icons.shield_rounded,
+      child: ListView(padding: const EdgeInsets.all(20), children: [
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('MOD ROLE', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 10),
+          TextField(controller: _modCtrl, decoration: InputDecoration(hintText: 'Username',
+            filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: DevPrimaryButton(label: 'Approve', color: const Color(0xFF7BD957), icon: Icons.check_rounded, onTap: () async {
+              final u = _modCtrl.text.trim();
+              if (u.isEmpty) { devToast(context, 'Enter a username', error: true); return; }
+              try { await Supabase.instance.client.rpc('approve_moderator', params: {'target_username': u});
+                devToast(context, '$u approved as moderator'); } catch (e) { devToast(context, '$e', error: true); }
+            })),
+            const SizedBox(width: 8),
+            Expanded(child: DevPrimaryButton(label: 'Revoke', color: Colors.red.shade400, icon: Icons.close_rounded, onTap: () async {
+              final u = _modCtrl.text.trim();
+              if (u.isEmpty) { devToast(context, 'Enter a username', error: true); return; }
+              try { await Supabase.instance.client.rpc('revoke_moderator', params: {'target_username': u});
+                devToast(context, '$u revoked'); } catch (e) { devToast(context, '$e', error: true); }
+            })),
+          ]),
+        ])),
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('LEADERBOARD BAN', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 10),
+          ProfileSearchField(hint: 'Search a username to ban...',
+            onSelected: (u) => showLeaderboardBanSheet(context, username: u, onDone: _loadLog)),
+        ])),
+        Text('RECENT ACTIONS', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+        const SizedBox(height: 10),
+        if (_loadingLog) const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())),
+        if (!_loadingLog && _recentActions.isEmpty)
+          Text('No moderation actions yet.', style: GoogleFonts.dmSans(color: Colors.black38)),
+        ..._recentActions.map((a) => Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: const Color(0xFFF7F7F7), borderRadius: BorderRadius.circular(14)),
+          child: Row(children: [
+            Icon(_iconFor(a['action_type']), color: _colorFor(a['action_type']), size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${a['action_type']} · ${a['target_username']}', style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800)),
+              if (a['reason'] != null) Text(a['reason'], style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54)),
+              Text('by ${a['performed_by']}', style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black38)),
+            ])),
+          ]),
+        )),
+      ]),
+    );
+  }
+}-e \n\n// ===== FILE: lib/screens/settings/dev/dev_puzzles_screen.dart =====
+// ===== FILE: lib/screens/settings/dev/dev_puzzles_screen.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/state/app_store.dart';
+import 'package:folds/models/xp_system.dart';
+import 'package:folds/models/texture_pack_def.dart';
+import 'package:folds/screens/gameplay_screen.dart';
+import 'dev_widgets.dart';
+
+class DevPuzzlesScreen extends StatefulWidget {
+  const DevPuzzlesScreen({super.key});
+  @override
+  State<DevPuzzlesScreen> createState() => DevPuzzlesScreenState();
+}
+
+class DevPuzzlesScreenState extends State<DevPuzzlesScreen> {
+  final _xpCtrl = TextEditingController();
+  final _idCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return DevSectionScaffold(
+      title: 'Puzzles', accent: const Color(0xFF5865F2), icon: Icons.extension_rounded,
+      child: ListView(padding: const EdgeInsets.all(20), children: [
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('YOUR XP', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 4),
+          Text('${AppStore.totalXP} XP · Rank ${XPSystem.rankFromXP(AppStore.totalXP)}',
+            style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: TextField(controller: _xpCtrl, keyboardType: TextInputType.number,
+              decoration: InputDecoration(hintText: 'Amount', filled: true, fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)))),
+            const SizedBox(width: 10),
+            DevPrimaryButton(label: 'ADD', color: const Color(0xFF5865F2), onTap: () async {
+              final amt = int.tryParse(_xpCtrl.text) ?? 0;
+              try {
+                await Supabase.instance.client.rpc('admin_add_xp',
+                  params: {'target_username': AppStore.displayUsername, 'amount': amt});
+                await AppStore.downloadCloudProfile();
+                _xpCtrl.clear();
+                setState(() {});
+                if (mounted) devToast(context, 'Added $amt XP · total ${AppStore.totalXP}');
+              } catch (e) { if (mounted) devToast(context, '$e', error: true); }
+            }),
+          ]),
+        ])),
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('SPECIFIC PUZZLE', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 10),
+          TextField(controller: _idCtrl, decoration: InputDecoration(
+            hintText: 'e.g. p1, r5, d3, x12', filled: true, fillColor: Colors.white,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: DevChipBtn(label: '✓ Mark Complete', onTap: () {
+              final id = _idCtrl.text.trim().toLowerCase();
+              if (id.isEmpty) { devToast(context, 'Enter a puzzle ID first', error: true); return; }
+              AppStore.markCompleted(id); AppStore.markParCompleted(id);
+              devToast(context, '$id marked complete');
+            })),
+            const SizedBox(width: 8),
+            Expanded(child: DevChipBtn(label: 'Open', color: const Color(0xFF2C2C2C), onTap: () {
+              final id = _idCtrl.text.trim().toLowerCase();
+              if (id.isEmpty) { devToast(context, 'Enter a puzzle ID first', error: true); return; }
+              Navigator.push(context, MaterialPageRoute(builder: (_) => GameplayScreen(initialPuzzleId: id)));
+            })),
+          ]),
+        ])),
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('FULL PACK COMPLETE', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            DevChipBtn(label: 'All Pilot ✓', onTap: () {
+              for (int i = 1; i <= 100; i++) { AppStore.markCompleted('p$i'); AppStore.markParCompleted('p$i'); }
+              devToast(context, 'Pilot pack completed');
+            }),
+            DevChipBtn(label: 'All Rectangle ✓', onTap: () {
+              for (int i = 1; i <= 100; i++) { AppStore.markCompleted('r$i'); AppStore.markParCompleted('r$i'); }
+              devToast(context, 'Rectangle pack completed');
+            }),
+            DevChipBtn(label: 'All Holiday ✓', onTap: () {
+              for (int i = 1; i <= 25; i++) { AppStore.markCompleted('x$i'); AppStore.markParCompleted('x$i'); }
+              devToast(context, 'Holiday pack completed');
+            }),
+          ]),
+        ])),
+        DevCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('TEXTURE PACKS', style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: texturePacks.where((t) => !t.isDefault).map((t) =>
+            DevChipBtn(label: 'Unlock ${t.name}', onTap: () {
+              AppStore.unlockTexturePack(t.id.name);
+              devToast(context, '${t.name} unlocked');
+            })).toList()),
+        ])),
+      ]),
+    );
+  }
+}-e \n\n// ===== FILE: lib/screens/splash/startup_splash_screen.dart =====
 // lib/screens/splash/startup_splash_screen.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -2003,7 +2531,6 @@ import 'package:folds/state/app_store.dart';
 import 'package:folds/state/app_settings.dart';
 import 'package:folds/services/audio_service.dart';
 import 'package:folds/theme/folds_theme.dart';
-import 'package:folds/models/xp_system.dart';
 import 'package:folds/models/achievement_def.dart';
 import 'package:folds/painters/icon_painters.dart';
 import 'package:folds/widgets/shared/misc.dart';
@@ -2020,7 +2547,6 @@ import 'package:folds/screens/social/credits_screen.dart';
 import 'package:folds/screens/social/socials_screen.dart';
 import 'leaderboard_screen.dart';
 import 'package:folds/widgets/gameplay/game_over_crack.dart';
-import 'package:folds/services/audio_service.dart';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4024,7 +4550,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/state/app_store.dart';
-import 'package:folds/screens/settings/dev_screen.dart';
+import 'package:folds/screens/settings/dev/dev_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'profile_tab.dart';
 import 'stats_achievements_tabs.dart';
@@ -6853,6 +7379,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/screens/profile/public_profile_sheet.dart';
 import 'package:folds/widgets/badge_info_dialog.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/widgets/moderation/leaderboard_ban_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LEADERBOARD — v2: podium + gradient header + staggered list entrance
@@ -6883,7 +7410,8 @@ class LeaderboardScreenState extends State<LeaderboardScreen> with SingleTickerP
     try {
       final data = await Supabase.instance.client
           .from('profiles')
-          .select('username, total_xp, avatar_path, is_moderator, is_dev_profile, mod_since')
+          .select('username, total_xp, avatar_path, is_moderator, is_dev_profile, mod_since, is_leaderboard_banned')
+          .or('is_leaderboard_banned.eq.false,is_leaderboard_banned.is.null')
           .order('total_xp', ascending: false)
           .limit(50);
 
@@ -6904,7 +7432,31 @@ class LeaderboardScreenState extends State<LeaderboardScreen> with SingleTickerP
       setState(() { _error = 'Could not load rankings.'; _loading = false; });
     }
   }
-
+  void _showModActions(BuildContext context, String username, bool isBanned) {
+  if (!(AppStore.isModerator || AppStore.isDevProfile)) return;
+  if (username == AppStore.displayUsername) return;
+  showModalBottomSheet(
+    context: context, backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: Icon(isBanned ? Icons.shield_rounded : Icons.leaderboard_rounded,
+              color: isBanned ? const Color(0xFF4CAF50) : Colors.red),
+            title: Text(isBanned ? 'Lift Leaderboard Ban' : 'Leaderboard Ban',
+              style: GoogleFonts.dmSans(fontWeight: FontWeight.w800)),
+            onTap: () {
+              Navigator.pop(ctx);
+              showLeaderboardBanSheet(context, username: username, isCurrentlyBanned: isBanned, onDone: _load);
+            },
+          ),
+        ]),
+      ),
+    ),
+  );
+} 
   @override
   Widget build(BuildContext context) {
     final myXP = AppStore.totalXP;
@@ -7137,6 +7689,10 @@ class _LeaderboardRow extends StatelessWidget {
 
     return GestureDetector(
       onTap: () => showPublicProfile(context, username: username, xp: xp, leaderboardRank: rank),
+      onLongPress: () {
+        final state = context.findAncestorStateOfType<LeaderboardScreenState>();
+        state?._showModActions(context, username, (entry['is_leaderboard_banned'] as bool?) ?? false);
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -8680,6 +9236,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:folds/widgets/shared/folds_top_bar.dart';
 import 'package:folds/screens/puzzles/puzzle_selector_screen.dart';
 import 'package:folds/screens/profile/auth_screen.dart';
+import 'package:folds/widgets/profile_search_field.dart';
+import 'package:folds/widgets/moderation/leaderboard_ban_sheet.dart';
 
 class ModeratorPanelScreen extends StatefulWidget {
   const ModeratorPanelScreen({super.key});
@@ -8847,6 +9405,24 @@ class ModeratorPanelScreenState extends State<ModeratorPanelScreen> {
                         fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black45))),
                   ),
                 ),
+
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity, padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(16)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      const Icon(Icons.leaderboard_rounded, color: Colors.red, size: 20),
+                      const SizedBox(width: 8),
+                      Text('LEADERBOARD BAN', style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.black54, letterSpacing: 0.5)),
+                    ]),
+                    const SizedBox(height: 10),
+                    ProfileSearchField(
+                      hint: 'Type a username to ban...',
+                      onSelected: (u) => showLeaderboardBanSheet(context, username: u, onDone: () {}),
+                    ),
+                  ]),
+                ),
               ] else ...[
                 const SizedBox(height: 40),
                 Container(
@@ -8920,6 +9496,7 @@ import 'services/audio_service.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/gameplay_screen.dart';
 import 'screens/splash/startup_splash_screen.dart';
+import 'package:folds/widgets/shared/offline_banner.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -8972,6 +9549,7 @@ class FoldsAppState extends State<FoldsApp> with WidgetsBindingObserver {
       title: 'Folds',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(),
+      builder: (context, child) => OfflineBannerListener(child: child!),
       home: showSplash ? StartupSplashScreen(next: home) : home,
     );
   }
@@ -9098,6 +9676,93 @@ static void setSfxVolume(double v) {
   AppStore.sfxVolume = v;
   _sfx.setVolume(v);
 }
+}-e \n\n// ===== FILE: lib/services/connectivity_service.dart =====
+import 'package:connectivity_plus/connectivity_plus.dart';
+
+class ConnectivityService {
+  static final Connectivity _connectivity = Connectivity();
+  
+  static Stream<bool> get onStatuschange =>
+    _connectivity.onConnectivityChanged.map((r) => !r.contains(ConnectivityResult.none));
+  
+  static Future<bool> get isOnline async{
+    final result = await _connectivity.checkConnectivity();
+    return !result.contains(ConnectivityResult.none);
+  }
+
+}-e \n\n// ===== FILE: lib/widgets/profile_search_field.dart =====
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class ProfileSearchField extends StatefulWidget {
+  final ValueChanged<String> onSelected;
+  final String hint;
+  const ProfileSearchField({super.key, required this.onSelected, this.hint = 'Search by username...'});
+  @override
+  State<ProfileSearchField> createState() => ProfileSearchFieldState();
+}
+
+class ProfileSearchFieldState extends State<ProfileSearchField> {
+  final _ctrl = TextEditingController();
+  List<String> _suggestions = [];
+  Timer? _debounce;
+
+  void _onChanged(String q) {
+    _debounce?.cancel();
+    if (q.trim().isEmpty) { setState(() => _suggestions = []); return; }
+    _debounce = Timer(const Duration(milliseconds: 220), () async {
+      try {
+        final data = await Supabase.instance.client
+          .from('profiles').select('username')
+          .ilike('username', '%{q.trim()}%').limit(8);
+        if (mounted) {
+          setState(() => _suggestions = 
+            List<Map<String, dynamic>>.from(data).map((e) => e['username'].toString()).toList());
+        }
+      } catch (_) {}
+    });
+  }
+
+  void _pick(String u) {
+    _ctrl.text = u;
+    setState(() => _suggestions = []);
+    FocusScope.of(context).unfocus();
+    widget.onSelected(u);
+  }
+
+  @override
+  void dispose() { _debounce?.cancel(); _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      TextField(
+        controller: _ctrl,
+        onChanged: _onChanged,
+        onSubmitted: (v) { if (v.trim().isNotEmpty) _pick(v.trim()); },
+        style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
+        decoration: InputDecoration(
+          hintText: widget.hint,
+          prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Colors.black38),
+          filled: true, fillColor: const Color (0xFFF5F5F5),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+        ),
+      ),
+      if (_suggestions.isNotEmpty)
+        Container(
+          margin: const EdgeInsets.only(top: 6),
+          decoration: BoxDecoration(color: const Color(0xFFF5F5F5), borderRadius: BorderRadius.circular(14)),
+          child: Column(children: _suggestions.map((s) => ListTile(
+            dense: true,
+            leading: const Icon(Icons.person_rounded, size: 18, color: Colors.black38),
+            title: Text(s, style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+            onTap: () => _pick(s),
+          )).toList()),
+        ),
+    ]);
+  }
 }-e \n\n// ===== FILE: lib/widgets/recipient_picker.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9788,7 +10453,85 @@ class TimeDisplay extends StatelessWidget {
     );
   }
 }
--e \n\n// ===== FILE: lib/widgets/shared/folds_dialog.dart =====
+-e \n\n// ===== FILE: lib/widgets/shared/offline_banner.dart =====
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:folds/services/connectivity_service.dart';
+
+class OfflineBannerListener extends StatefulWidget {
+  final Widget child;
+  const OfflineBannerListener({super.key, required this.child});
+  @override
+  State<OfflineBannerListener> createState() => OfflineBannerListenerState();
+}
+
+class OfflineBannerListenerState extends State<OfflineBannerListener> {
+  bool _offline = false;
+  StreamSubscription<bool>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    ConnectivityService.isOnline.then((online) {
+      if (mounted) setState(() => _offline = !online);
+    });
+    _sub = ConnectivityService.onStatuschange.listen((online) {
+      if (mounted) setState(() => _offline = !online);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Stack(
+        children: [
+          widget.child,
+          Positioned(
+            top: 0, left: 0, right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: AnimatedSlide(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                offset: _offline ? Offset.zero : const Offset(0, -1.4),
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  opacity: _offline ? 1 : 0,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE6543A),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 12, offset: const Offset(0, 4))],
+                    ),
+                  child: Row(children: [
+                    const Icon(Icons.cloud_off_rounded, color: Colors.white, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text('No connection. Playing offline. Progress will sync once back online.',
+                        style: GoogleFonts.dmSans(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                    ),
+                  ]),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+    ),
+    );
+  }
+                    
+}-e \n\n// ===== FILE: lib/widgets/shared/folds_dialog.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -11117,3 +11860,138 @@ class ConfettiPainter extends CustomPainter {
   bool shouldRepaint(ConfettiPainter old) => true;
 }
 
+-e \n\n// ===== FILE: lib/widgets/moderation/leaderboard_ban_sheet.dart =====
+// ===== FILE: lib/widgets/moderation/leaderboard_ban_sheet.dart =====
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:folds/widgets/shared/folds_dialog.dart';
+
+const List<String> kBanReasons = [
+  'Suspicious / impossible XP',
+  'Inappropriate username',
+  'Inappropriate avatar',
+  'Harassment or abuse',
+  'Other',
+];
+
+Future<void> showLeaderboardBanSheet(
+  BuildContext context, {
+  required String username,
+  bool isCurrentlyBanned = false,
+  VoidCallback? onDone,
+}) async {
+  if (isCurrentlyBanned) {
+    await showFoldsDialog(context,
+      title: 'Lift Leaderboard Ban?',
+      message: '$username will reappear on public leaderboards and their profile sheet will be visible again.',
+      icon: Icons.shield_rounded,
+      iconColor: const Color(0xFF4CAF50),
+      actions: [
+        FoldsDialogAction(label: 'Cancel', onTap: () {}),
+        FoldsDialogAction(label: 'Lift Ban', isPrimary: true, color: const Color(0xFF4CAF50), onTap: () async {
+          try {
+            await Supabase.instance.client.rpc('leaderboard_unban_user', params: {'target_username': username});
+          } catch (_) {}
+          onDone?.call();
+        }),
+      ],
+    );
+    return;
+  }
+
+  String? selectedReason;
+  final detailsCtrl = TextEditingController();
+
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetCtx) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 28),
+        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+        child: StatefulBuilder(builder: (context, setSheetState) {
+          return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Center(child: Container(width: 40, height: 4,
+              decoration: BoxDecoration(color: const Color(0xFFE0E0E0), borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 16),
+            Row(children: [
+              Container(width: 44, height: 44,
+                decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.12), shape: BoxShape.circle),
+                child: const Icon(Icons.leaderboard_rounded, color: Colors.red)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Leaderboard Ban', style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800)),
+                Text(username, style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black45, fontWeight: FontWeight.w700)),
+              ])),
+            ]),
+            const SizedBox(height: 8),
+            Text('This hides their profile from public leaderboards and profile sheets. It does NOT affect their ability to play.',
+              style: GoogleFonts.dmSans(fontSize: 12.5, color: Colors.black45, height: 1.4)),
+            const SizedBox(height: 18),
+            Text('REASON', style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black38, letterSpacing: 1)),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, runSpacing: 8, children: kBanReasons.map((r) {
+              final selected = selectedReason == r;
+              return GestureDetector(
+                onTap: () => setSheetState(() => selectedReason = r),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: selected ? const Color(0xFF2C2C2C) : const Color(0xFFF5F5F5),
+                    borderRadius: BorderRadius.circular(20)),
+                  child: Text(r, style: GoogleFonts.dmSans(fontSize: 12.5, fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : Colors.black54)),
+                ),
+              );
+            }).toList()),
+            const SizedBox(height: 14),
+            TextField(
+              controller: detailsCtrl,
+              maxLines: 3,
+              style: GoogleFonts.dmSans(fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Add details (optional but recommended)...',
+                filled: true, fillColor: const Color(0xFFF5F5F5),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 18),
+            GestureDetector(
+              onTap: selectedReason == null ? null : () async {
+                final reason = detailsCtrl.text.trim().isEmpty
+                    ? selectedReason!
+                    : '$selectedReason: ${detailsCtrl.text.trim()}';
+                Navigator.pop(sheetCtx);
+                try {
+                  await Supabase.instance.client.rpc('leaderboard_ban_user',
+                    params: {'target_username': username, 'reason': reason});
+                  onDone?.call();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('$username has been leaderboard banned.', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                      backgroundColor: const Color(0xFF2C2C2C), behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))));
+                  }
+                } catch (e) {
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+                }
+              },
+              child: Opacity(
+                opacity: selectedReason == null ? 0.4 : 1,
+                child: Container(
+                  width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 15),
+                  decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(14)),
+                  child: Center(child: Text('CONFIRM BAN', style: GoogleFonts.dmSans(
+                    fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5))),
+                ),
+              ),
+            ),
+          ]);
+        }),
+      ),
+    ),
+  );
+}

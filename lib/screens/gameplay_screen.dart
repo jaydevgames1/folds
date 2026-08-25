@@ -13,7 +13,6 @@ import 'package:folds/state/app_store.dart';
 import 'package:folds/state/app_settings.dart';
 import 'package:folds/services/audio_service.dart';
 import 'package:folds/theme/folds_theme.dart';
-import 'package:folds/models/xp_system.dart';
 import 'package:folds/models/achievement_def.dart';
 import 'package:folds/painters/icon_painters.dart';
 import 'package:folds/widgets/shared/misc.dart';
@@ -30,7 +29,6 @@ import 'package:folds/screens/social/credits_screen.dart';
 import 'package:folds/screens/social/socials_screen.dart';
 import 'leaderboard_screen.dart';
 import 'package:folds/widgets/gameplay/game_over_crack.dart';
-import 'package:folds/services/audio_service.dart';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
