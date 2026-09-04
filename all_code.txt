@@ -20,7 +20,23 @@ int HolidayPackUnlockDate(DateTime date) {
   final clean = DateTime(date.year, date.month, date.day);
   final diff = clean.difference(kHolidayPackUnlockDate).inDays;
   return diff >= 0 ? diff + 1 : diff;
-}-e \n\n// ===== FILE: lib/painters/store_shape_painters.dart =====
+}
+
+/// ── BETA MODE ───────────────────────────────────────────────────────────
+/// When true, the app boots into a stripped-down beta/demo build:
+///  - Startup shows a blank "You Are In Demo Mode" screen instead of a puzzle.
+///  - Store and Settings are locked out of the 6SM menu.
+///  - Profile's Stats & Achievements tabs are locked.
+///  - Puzzles screen only offers the Beta Pack — Pilot/Rectangle are locked,
+///    and the holiday countdown is hidden entirely.
+///  - Beta puzzles (id prefix "bt") award no XP, never touch the daily
+///    streak, and share as "Folds Beta v0.3" instead of "Folds".
+/// Set to false to restore normal app behavior.
+const bool kBetaMode = true;
+
+/// Prefix + count for Beta Pack puzzle ids (bt1 .. bt12).
+const String kBetaPuzzlePrefix = 'bt';
+const int kBetaPuzzleCount = 12;-e \n\n// ===== FILE: lib/painters/store_shape_painters.dart =====
 import 'package:flutter/material.dart';
 import 'dart:math';
 import 'package:google_fonts/google_fonts.dart';
@@ -2547,13 +2563,15 @@ import 'package:folds/screens/social/credits_screen.dart';
 import 'package:folds/screens/social/socials_screen.dart';
 import 'leaderboard_screen.dart';
 import 'package:folds/widgets/gameplay/game_over_crack.dart';
+import 'package:folds/screens/puzzles/pack_cards.dart';
+import 'package:folds/screens/puzzles/puzzles_menu_screen.dart';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GAMEPLAY SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
 class GameplayScreen extends StatefulWidget {
-  final String? initialPuzzleId; // Null defaults to daily
+  final String? initialPuzzleId; // Null defaults to daily (or the Beta demo screen)
   const GameplayScreen({super.key, this.initialPuzzleId});
   @override
   State<GameplayScreen> createState() => GameplayScreenState();
@@ -2563,6 +2581,7 @@ class GameplayScreenState extends State<GameplayScreen> {
   bool _menuOpen = false;
   bool _menuVisible = false;
   bool _paused = false;
+  bool _showBetaDemo = false; // Beta Mode: blank "You Are In Demo Mode" landing screen
   late Stopwatch _stopwatch;
   late Timer _timer;
   String _timeDisplay = '00:00';
@@ -2597,6 +2616,18 @@ class GameplayScreenState extends State<GameplayScreen> {
     _startTimer();
     AudioService.startMusic();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Beta Mode: the default landing (no explicit puzzle id) is a blank
+      // demo screen instead of Pilot #1 / today's daily. Puzzles opened
+      // explicitly (Beta Pack included) still load and play normally.
+      if (kBetaMode && widget.initialPuzzleId == null) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _showBetaDemo = true;
+        });
+        return;
+      }
+
       if (widget.initialPuzzleId != null) {
         _requestedId = widget.initialPuzzleId!;
         _loadPuzzle(widget.initialPuzzleId!);
@@ -2833,6 +2864,9 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     } else if (_id.startsWith('r')) {
       final n = _id.replaceAll(RegExp(r'^[a-z]+'), '');
       return 'Rectangle #$n';
+    } else if (_id.startsWith(kBetaPuzzlePrefix)) {
+      final n = _id.replaceAll(RegExp(r'^[a-z]+'), '');
+      return 'Beta #$n';
     }
     final n = _id.replaceAll(RegExp(r'^[a-z]+'), '');
     return '#$n $_title';
@@ -2858,7 +2892,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     final prefix = _id.replaceAll(RegExp(r'[0-9]'), '');
     final num = int.tryParse(_id.replaceAll(RegExp(r'[^0-9]'), ''));
     if (num == null) return null;
-    final maxes = {'p': 100, 'r': 100, 'x': 25};
+    final maxes = {'p': 100, 'r': 100, 'x': 25, kBetaPuzzlePrefix: kBetaPuzzleCount};
     final max = maxes[prefix] ?? 0;
     if (num >= max) return null;
     return '$prefix${num + 1}';
@@ -2869,6 +2903,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     if (_id.startsWith('d')) return 'daily';
     if (_id.startsWith('p')) return 'pilot';
     if (_id.startsWith('r')) return 'rectangle';
+    if (_id.startsWith(kBetaPuzzlePrefix)) return 'beta';
     return 'puzzles';
   }
 
@@ -2909,6 +2944,23 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
   _timer.cancel();
   if (AppSettings.haptic) HapticFeedback.heavyImpact();
   AudioService.solve();
+
+  // ── BETA MODE: beta puzzles are practice-only. No XP, no cloud sync,
+  // no streak impact, no achievement unlocks — just a local completion
+  // flag so the Beta Pack screen can show progress/checkmarks.
+  final isBetaPuzzle = _id.startsWith(kBetaPuzzlePrefix);
+  if (isBetaPuzzle) {
+    AppStore.markCompleted(_id);
+    if (_moves <= _par) AppStore.markParCompleted(_id);
+    if (_moves <= _par) _showConfetti();
+    if (!mounted) return;
+    setState(() {
+      _solved = true;
+      _earnedXP = 0;
+      _hideXPOnComplete = true; // hides the XP stat entirely on the results card
+    });
+    return;
+  }
 
   void tryUnlock(String id) {
     if (!AppStore.isUnlocked(id)) {
@@ -3212,6 +3264,7 @@ final cellSize = min(cellSizeW, cellSizeH);
   void _openMenu() {
     setState(() => _menuOpen = true);
     Future.delayed(const Duration(milliseconds: 20), () {
+      if (!mounted) return;
       setState(() => _menuVisible = true);
     });
   }
@@ -3219,12 +3272,197 @@ final cellSize = min(cellSizeW, cellSizeH);
   void _closeMenu() {
     setState(() => _menuVisible = false);
     Future.delayed(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
       setState(() => _menuOpen = false);
     });
   }
 
+  // ── 6SM overlay menu — extracted so both normal gameplay and the Beta
+  // Mode demo screen can show the exact same menu. ──────────────────────
+  Widget _buildMenuOverlay() {
+    return AnimatedOpacity(
+      opacity: _menuVisible ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      child: GestureDetector(
+        onTap: _closeMenu,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+          child: Container(
+            color: Colors.white.withValues(alpha: 0.3),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      _closeMenu();
+                      Future.delayed(const Duration(milliseconds: 260), () {
+                        pushFade(context, const LeaderboardScreen());
+                      });
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(20)),
+                      child: Row(children: [
+                        const Icon(Icons.leaderboard_rounded,
+                          color: Color(0xFFFFD465), size: 20),
+                        const SizedBox(width: 12),
+                        Text('LEADERBOARD', style: GoogleFonts.dmSans(
+                          fontSize: 16, fontWeight: FontWeight.w800,
+                          color: Colors.white, letterSpacing: 0.5)),
+                        const Spacer(),
+                        const Icon(Icons.chevron_right_rounded,
+                          color: Colors.white38, size: 20),
+                      ]),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      SixSMCard(
+                        label: 'Puzzles',
+                          icon: Icons.extension_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const PuzzlesMenuScreen());
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        SixSMCard(
+                          label: 'Profile',
+                          icon: Icons.account_circle_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const ProfileScreen());
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        SixSMCard(
+                          label: 'Store',
+                          icon: Icons.shopping_basket_rounded,
+                          disabled: kBetaMode,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const StoreScreen());
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        SixSMCard(
+                          label: 'Settings',
+                          icon: Icons.settings_rounded,
+                          disabled: kBetaMode,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const SettingsScreen());
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        SixSMCard(
+                          label: 'Socials',
+                          icon: Icons.favorite_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const SocialsScreen());
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        SixSMCard(
+                          label: 'Credits',
+                          icon: Icons.handshake_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const CreditsScreen());
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Beta Mode demo landing screen ─────────────────────────────────────
+  Widget _buildBetaDemoScreen() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: _openMenu,
+                    child: Container(
+                      width: 40, height: 40,
+                      decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
+                      child: ClipOval(child: CustomPaint(painter: HomeIconPainter())),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Text(
+                'YOU ARE IN DEMO MODE',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.dmSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black26,
+                  letterSpacing: 1,
+                ),
+              ),
+            ),
+          ),
+          if (_menuOpen) _buildMenuOverlay(),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // ── Beta Mode demo landing screen ───────────────────────────────
+    if (_showBetaDemo) {
+      return _buildBetaDemoScreen();
+    }
+
     // ── Loading screen ────────────────────────────────────────────
     if (_loading) {
       return Scaffold(
@@ -3688,135 +3926,7 @@ final cellSize = min(cellSizeW, cellSizeH);
             ),
 
             // ── 6SM overlay ───────────────────────────────────────
-            if (_menuOpen)
-              AnimatedOpacity(
-                opacity: _menuVisible ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                child: GestureDetector(
-                  onTap: _closeMenu,
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                    child: Container(
-                      color: Colors.white.withValues(alpha: 0.3),
-                      child: SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            GestureDetector(
-                              onTap: () {
-                                _closeMenu();
-                                Future.delayed(const Duration(milliseconds: 260), () {
-                                  pushFade(context, const LeaderboardScreen());
-                                });
-                              },
-                              child: Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2C2C2C),
-                                  borderRadius: BorderRadius.circular(20)),
-                                child: Row(children: [
-                                  const Icon(Icons.leaderboard_rounded,
-                                    color: Color(0xFFFFD465), size: 20),
-                                  const SizedBox(width: 12),
-                                  Text('LEADERBOARD', style: GoogleFonts.dmSans(
-                                    fontSize: 16, fontWeight: FontWeight.w800,
-                                    color: Colors.white, letterSpacing: 0.5)),
-                                  const Spacer(),
-                                  const Icon(Icons.chevron_right_rounded,
-                                    color: Colors.white38, size: 20),
-                                ]),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                SixSMCard(
-                                  label: 'Puzzles',
-                                    icon: Icons.extension_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const PuzzlesMenuScreen());
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SixSMCard(
-                                    label: 'Profile',
-                                    icon: Icons.account_circle_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const ProfileScreen());
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  SixSMCard(
-                                    label: 'Store',
-                                    icon: Icons.shopping_basket_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const StoreScreen());
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SixSMCard(
-                                    label: 'Settings',
-                                    icon: Icons.settings_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const SettingsScreen());
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  SixSMCard(
-                                    label: 'Socials',
-                                    icon: Icons.favorite_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const SocialsScreen());
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SixSMCard(
-                                    label: 'Credits',
-                                    icon: Icons.handshake_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const CreditsScreen());
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            if (_menuOpen) _buildMenuOverlay(),
           ],
             ),
           ),
@@ -3824,9 +3934,7 @@ final cellSize = min(cellSizeW, cellSizeH);
       ),
     );
   }
-}
-
--e \n\n// ===== FILE: lib/screens/social/credits_screen.dart =====
+}-e \n\n// ===== FILE: lib/screens/social/credits_screen.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/widgets/shared/folds_top_bar.dart';
@@ -4549,6 +4657,7 @@ class ReceiptsScreenState extends State<ReceiptsScreen> {
 -e \n\n// ===== FILE: lib/screens/profile/profile_screen.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:folds/core/constants.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/screens/settings/dev/dev_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -4629,6 +4738,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                     child: ProfileTabBar(
                       selected: _tab,
                       onChanged: (i) => setState(() => _tab = i),
+                      disabledIndices: kBetaMode ? const {1, 2} : const {},
                     ),
                   ),
                   
@@ -4702,7 +4812,12 @@ class ProfileScreenState extends State<ProfileScreen> {
 class ProfileTabBar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onChanged;
-  const ProfileTabBar({required this.selected, required this.onChanged});
+  final Set<int> disabledIndices;
+  const ProfileTabBar({
+    required this.selected,
+    required this.onChanged,
+    this.disabledIndices = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -4716,9 +4831,22 @@ class ProfileTabBar extends StatelessWidget {
       child: Row(
         children: List.generate(labels.length, (i) {
           final isSelected = i == selected;
+          final isDisabled = disabledIndices.contains(i);
           return Expanded(
             child: GestureDetector(
-              onTap: () => onChanged(i),
+              onTap: () {
+                if (isDisabled) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Not available in Beta Mode',
+                      style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                    backgroundColor: const Color(0xFF2C2C2C),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ));
+                  return;
+                }
+                onChanged(i);
+              },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(vertical: 10),
@@ -4727,13 +4855,25 @@ class ProfileTabBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(
-                  child: Text(labels[i],
-                    style: GoogleFonts.dmSans(
-                      fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                      color: isSelected ? Colors.black : Colors.black38,
-                      letterSpacing: 0.5,
-                    )),
+                  child: Opacity(
+                    opacity: isDisabled ? 0.4 : 1.0,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isDisabled) const Padding(
+                          padding: EdgeInsets.only(right: 4),
+                          child: Icon(Icons.lock_rounded, size: 11, color: Colors.black38),
+                        ),
+                        Text(labels[i],
+                          style: GoogleFonts.dmSans(
+                            fontSize: 12,
+                            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                            color: isSelected ? Colors.black : Colors.black38,
+                            letterSpacing: 0.5,
+                          )),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -4742,9 +4882,7 @@ class ProfileTabBar extends StatelessWidget {
       ),
     );
   }
-}
-
--e \n\n// ===== FILE: lib/screens/profile/stats_achievements_tabs.dart =====
+}-e \n\n// ===== FILE: lib/screens/profile/stats_achievements_tabs.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:folds/state/app_store.dart';
@@ -5377,6 +5515,14 @@ class AuthScreenState extends State<AuthScreen> {
     return u != null && u.isAnonymous;
   }
 
+  static const _months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
+      'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+
+  String _joinDateNow() {
+    final d = DateTime.now();
+    return 'JOINED ${d.day} ${_months[d.month]} ${d.year}';
+  }
+
   Future<void> _authenticate() async {
     setState(() => _isLoading = true);
     try {
@@ -5384,89 +5530,90 @@ class AuthScreenState extends State<AuthScreen> {
       final wasAnonymous = anon != null && anon.isAnonymous;
 
       if (_isSignUp) {
-        if (_usernameController.text.trim().isEmpty) {
-          throw Exception('Please choose a username.');
-        }
-        final available = await AppStore.isUsernameAvailable(_usernameController.text.trim());
-        if (!available) {
-          throw Exception('That username is already taken. Please choose another.');
-        }
+        await _handleSignUp(wasAnonymous, anon);
+        return;
+      } else {
+        await _handleSignIn();
+        return;
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
 
-        if (wasAnonymous && _keepProgress) {
-          // Upgrade the existing anonymous user in place — same id, same
-          // profile row, same XP. Nothing to re-download or restart.
-          await Supabase.instance.client.auth.updateUser(UserAttributes(
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-            data: {'username': _usernameController.text.trim()},
-          ));
-          final uid = anon.id;
-          final d = DateTime.now();
-          const months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
-              'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
-          final joinStr = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
-          await Supabase.instance.client.from('profiles').update({
-            'username': _usernameController.text.trim(),
-            'join_date': joinStr,
-          }).eq('id', uid);
-        } else {
-          // Fresh account, "Create Account & Sign In" in one step.
-          await Supabase.instance.client.auth.signUp(
-            email: _emailController.text.trim(),
-            password: _passwordController.text,
-            data: {'username': _usernameController.text.trim()},
-          );
-          try {
-            await Supabase.instance.client.auth.signInWithPassword(
-              email: _emailController.text.trim(),
-              password: _passwordController.text,
-            );
-            final uid = Supabase.instance.client.auth.currentUser?.id;
-            if (uid != null) {
-              final d = DateTime.now();
-              const months = ['','JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
-                  'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
-              final joinStr = 'JOINED ${d.day} ${months[d.month]} ${d.year}';
-              await Supabase.instance.client.from('profiles').update({
-                'join_date': joinStr,
-                'username': _usernameController.text.trim(),
-              }).eq('id', uid);
-            }
-          } catch (_) {
-            // Email confirmation required — account exists, they'll verify first.
-          }
-        }
-        await AppStore.downloadCloudProfile();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Welcome to the Fold! You\'re signed in.')));
-          Navigator.pop(context, true);
-        }
-      // _authenticate()'s sign-in (else) branch — replace entirely with:
-} else {
-  final rootNavigator = Navigator.of(context, rootNavigator: true);
-  final input = _emailController.text.trim();
-  try {
-    final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+  Future<void> _handleSignUp(bool wasAnonymous, User? anon) async {
+    if (_usernameController.text.trim().isEmpty) {
+      throw Exception('Please choose a username.');
+    }
+    final username = _usernameController.text.trim();
+    final email = _emailController.text.trim();
 
-    rootNavigator.pushAndRemoveUntil(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-        transitionDuration: const Duration(milliseconds: 200),
-      ),
-      (route) => false,
-    );
+    final available = await AppStore.isUsernameAvailable(username);
+    if (!available) {
+      throw Exception('That username is already taken. Please choose another.');
+    }
 
-    try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
-    await Supabase.instance.client.auth.signInWithPassword(
+    final joinStr = _joinDateNow();
+
+    if (wasAnonymous && _keepProgress && anon != null) {
+      // Upgrade the existing anonymous user in place — same id, same
+      // profile row, same XP. Nothing to re-download or restart.
+      final userResp = await Supabase.instance.client.auth.updateUser(UserAttributes(
+        email: email,
+        password: _passwordController.text,
+        data: {'username': username},
+      ));
+
+      await Supabase.instance.client.from('profiles').update({
+        'username': username,
+        'join_date': joinStr,
+      }).eq('id', anon.id);
+
+      // If Supabase queued a confirmation for the new email, the account
+      // isn't fully theirs yet — say so instead of claiming success.
+      final needsConfirmation = userResp.user?.emailConfirmedAt == null;
+      await AppStore.downloadCloudProfile();
+
+      if (!mounted) return;
+      if (needsConfirmation) {
+        _showCheckEmailDialog(email);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Welcome to the Fold! You\'re signed in.')));
+        Navigator.pop(context, true);
+      }
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    // Fresh account, "Create Account & Sign In" in one step.
+    final response = await Supabase.instance.client.auth.signUp(
       email: email,
       password: _passwordController.text,
+      data: {'username': username},
     );
+
+    if (response.session == null) {
+      // No session came back — email confirmation is required. Nobody is
+      // actually signed in yet, so say so plainly instead of pretending.
+      if (!mounted) return;
+      _showCheckEmailDialog(email);
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    // Confirmations are off for this project — we're genuinely signed in.
+    final uid = response.user!.id;
+    await Supabase.instance.client.from('profiles').update({
+      'username': username,
+      'join_date': joinStr,
+    }).eq('id', uid);
     await AppStore.wipeLocalProfileData();
     await AppStore.downloadCloudProfile();
 
-    rootNavigator.pushAndRemoveUntil(
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => const GameplayScreen(),
         transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
@@ -5474,25 +5621,83 @@ class AuthScreenState extends State<AuthScreen> {
       ),
       (route) => false,
     );
-  } catch (e) {
-    // The old AuthScreen context is gone by now, so we can't snackbar on it —
-    // bounce to a fresh AuthScreen that shows the error instead of hanging.
-    rootNavigator.pushAndRemoveUntil(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => AuthScreen(errorMessage: e.toString()),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-        transitionDuration: const Duration(milliseconds: 200),
-      ),
-      (route) => false,
-    );
   }
-  return;
-}
 
+  Future<void> _handleSignIn() async {
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    final input = _emailController.text.trim();
+    try {
+      final email = input.contains('@') ? input : await AppStore.resolveUsernameToEmail(input);
+
+      rootNavigator.pushAndRemoveUntil(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const AuthTransitionScreen(message: 'Signing In...'),
+          transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+          transitionDuration: const Duration(milliseconds: 200),
+        ),
+        (route) => false,
+      );
+
+      try { await Supabase.instance.client.auth.signOut(); } catch (_) {}
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: _passwordController.text,
+      );
+      await AppStore.wipeLocalProfileData();
+      await AppStore.downloadCloudProfile();
+
+      rootNavigator.pushAndRemoveUntil(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const GameplayScreen(),
+          transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+          transitionDuration: const Duration(milliseconds: 350),
+        ),
+        (route) => false,
+      );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      // The old AuthScreen context is gone by now, so we can't snackbar on it —
+      // bounce to a fresh AuthScreen that shows the error instead of hanging.
+      rootNavigator.pushAndRemoveUntil(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => AuthScreen(errorMessage: e.toString()),
+          transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+          transitionDuration: const Duration(milliseconds: 200),
+        ),
+        (route) => false,
+      );
     }
-    if (mounted) setState(() => _isLoading = false);
+  }
+
+  void _showCheckEmailDialog(String email) {
+    showFoldsDialog(
+      context,
+      title: 'Check Your Email',
+      message: 'We sent a confirmation link to $email. Tap it to finish setting up '
+          'your account — your progress is safe and will be waiting when you come back.',
+      icon: Icons.mark_email_unread_rounded,
+      iconColor: const Color(0xFF2C2C2C),
+      actions: [
+        FoldsDialogAction(
+          label: 'Resend Email',
+          onTap: () async {
+            try {
+              await Supabase.instance.client.auth.resend(type: OtpType.signup, email: email);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Confirmation email resent.')));
+              }
+            } catch (_) {}
+          },
+        ),
+        FoldsDialogAction(
+          label: 'Got It',
+          isPrimary: true,
+          onTap: () {
+            if (mounted) Navigator.pop(context); // back out of AuthScreen
+          },
+        ),
+      ],
+    );
   }
 
   @override
@@ -6589,346 +6794,213 @@ class PuzzleSelectorScreen extends StatelessWidget {
 
 
 -e \n\n// ===== FILE: lib/screens/puzzles/puzzles_menu_screen.dart =====
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:folds/core/constants.dart';
 import 'package:folds/state/app_store.dart';
-import 'package:folds/main.dart';
-import 'package:folds/painters/icon_painters.dart';
-import 'package:folds/widgets/shared/folds_top_bar.dart';
-import 'package:folds/screens/puzzles/pack_cards.dart';
-import 'package:folds/screens/puzzles/pilot_pack_detail_screen.dart';
-import 'package:folds/screens/puzzles/puzzle_selector_screen.dart';
-import 'package:folds/screens/puzzles/daily_archive_screen.dart';
+import 'puzzle_selector_screen.dart';
+import 'package:folds/core/constants.dart';
 
-class PuzzlesMenuScreen extends StatefulWidget {
-  const PuzzlesMenuScreen({super.key});
-  @override
-  State<PuzzlesMenuScreen> createState() => PuzzlesMenuScreenState();
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// PUZZLE SIZE CARD (used by PilotPackDetailScreen)
+// ─────────────────────────────────────────────────────────────────────────────
+class PuzzleSizeCard extends StatelessWidget {
+  final String label;
+  final String puzzleCount;
+  final int completed;
+  final int total;
+  final int gridSize;
+  final VoidCallback onPlay;
+  final VoidCallback onHome;
 
-class PuzzlesMenuScreenState extends State<PuzzlesMenuScreen> {
-  bool _downloadBusy = false;
-  String _countdown = '';
-  Timer? _countdownTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _tick();
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(_tick);
-    });
-  }
-
-  void _tick() {
-    final now = DateTime.now();
-    final midnight = DateTime(now.year, now.month, now.day + 1);
-    final d = midnight.difference(now);
-    _countdown = '${d.inHours.toString().padLeft(2,'0')}:${(d.inMinutes % 60).toString().padLeft(2,'0')}:${(d.inSeconds % 60).toString().padLeft(2,'0')}';
-  }
-
-  @override
-  void dispose() {
-    _countdownTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _handleDownloadTap() async {
-    final has = AppStore.hasOfflinePuzzles;
-    final count = AppStore.offlinePuzzleCount;
-
-    if (has) {
-      final remove = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          backgroundColor: Colors.white,
-          title: Text('Offline Puzzles', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 20)),
-          content: Text(
-            '$count puzzles are cached locally (~${(count * 0.5).ceil()} KB). '
-            'You can play without internet. Remove the offline data?',
-            style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Keep', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text('Remove', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.red)),
-            ),
-          ],
-        ),
-      );
-      if (remove == true) {
-        await AppStore.clearOfflinePuzzles();
-        setState(() {});
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Offline puzzles removed.',
-            style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
-          backgroundColor: const Color(0xFF2C2C2C),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
-      }
-      return;
-    }
-
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: Colors.white,
-        title: Row(
-          children: [
-            const Icon(Icons.download_rounded, color: Color(0xFF2C2C2C)),
-            const SizedBox(width: 10),
-            Text('Download Puzzles', style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, fontSize: 20)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Download all puzzle data to your device so you can play offline — anytime, anywhere, no internet needed.',
-              style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black54, height: 1.5),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFEFEF),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, size: 16, color: Colors.black38),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Approx. size: ~150 KB. Progress still syncs when back online.',
-                      style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black45),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        actions: [
-          Row(
-            children: [
-              GestureDetector(
-                onTap: () => Navigator.pop(ctx, false),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                  child: Text('Cancel',
-                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, color: Colors.black45)),
-                ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => Navigator.pop(ctx, true),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2C2C2C),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text('Download',
-                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w800, color: Colors.white)),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-
-    if (go != true) return;
-    setState(() => _downloadBusy = true);
-    final result = await AppStore.downloadAllPuzzles();
-    setState(() => _downloadBusy = false);
-    if (!mounted) return;
-   if (result != null) AppStore.unlockAchievement('just_in_case');
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(result != null
-            ? '✅ ${result['count']} puzzles cached (${result['sizeKB']} KB) — play offline anytime!'
-            : '❌ Download failed. Check your connection.',
-            style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
-      backgroundColor: const Color(0xFF2C2C2C),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    ));
-  }
-
-  
+  const PuzzleSizeCard({
+    super.key,
+    required this.label,
+    required this.puzzleCount,
+    required this.completed,
+    required this.total,
+    required this.gridSize,
+    required this.onPlay,
+    required this.onHome,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final hasCached = AppStore.hasOfflinePuzzles;
-    return Scaffold(
-      backgroundColor: Colors.white,
-      floatingActionButton: GestureDetector(
-        onTap: _downloadBusy ? null : _handleDownloadTap,
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: const Color(0xFF2C2C2C),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: _downloadBusy
-            ? const Center(
-                child: SizedBox(
-                  width: 22, height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                ),
-              )
-            : Icon(
-                hasCached ? Icons.download_done_rounded : Icons.download_rounded,
-                color: hasCached ? const Color(0xFF7BD957) : Colors.white,
-                size: 26,
-              ),
-        ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Column(
+    final progress = total > 0 ? completed / total : 0.0;
+    final pct = (progress * 100).toInt();
+
+    return Container(
+      decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
+      padding: const EdgeInsets.all(16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final panelSize = constraints.maxHeight;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              FoldsTopBar(title: 'PUZZLES', onBack: () => Navigator.pop(context)),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      height: 120,
-                      decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text('DAILY PUZZLE', style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
-                          const SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(color: const Color.fromARGB(0, 66, 66, 68), borderRadius: BorderRadius.circular(6)),
-                            child: Text('#${foldsDayNumberFor(DateTime.now())}',
-                              style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white70)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label,
+                          style: GoogleFonts.dmSans(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.white)),
+                        const SizedBox(height: 2),
+                        Text(puzzleCount,
+                          style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white54)),
+                      ],
+                    ),
+                    Stack(
+                      children: [
+                        Container(
+                          height: 24,
+                          decoration: BoxDecoration(color: const Color(0xFFd9d9d9), borderRadius: BorderRadius.circular(8)),
+                          child: Row(
+                            children: [
+                              if (pct > 0)
+                                Expanded(
+                                  flex: pct,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFD465),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                ),
+                              Expanded(flex: 100 - pct, child: const SizedBox()),
+                            ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            foldsDayNumberFor(DateTime.now()) < 1
-                              ? 'Launches in $_countdown'
-                              : 'Next daily in $_countdown',
-                            style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white38)),
-                        ],
-                      ),
+                        ),
+                        Positioned.fill(
+                          child: Center(
+                            child: Text('$pct%',
+                              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.black54)),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  GestureDetector(
-                    onTap: () => pushFade(context, const DailyArchiveScreen()),
-                    child: Container(
-                      width: 76, height: 120,
-                      decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
-                      child: Center(child: CustomPaint(size: const Size(28, 24), painter: ArchiveIconPainter())),
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: onPlay,
+                          child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30),
+                        ),
+                        const SizedBox(width: 24),
+                        GestureDetector(
+                          onTap: onHome,
+                          child: const Icon(Icons.home_rounded, color: Colors.white, size: 26),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              // Replace the Expanded GridView.count with:
-Expanded(
-  child: SingleChildScrollView(
-    physics: const BouncingScrollPhysics(),
-    child: Column(
-      children: [
-        // Holiday pack at TOP when unlocked
-        if (!DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
-          const HolidayPackBanner(),
-          const SizedBox(height: 14),
-        ],
-        SizedBox(
-          height: 190,
-          child: MenuPackCard(
-            title: 'PILOT PACK',
-            subtitle: '100 PUZZLES',
-            completedPuzzles: AppStore.completedInRange('p', 0, 100),
-            totalPuzzles: 100,
-            shapeType: PackShapeType.square,
-            onPlay: () => Navigator.pop(context),
-            onHome: () => pushFade(context, const PilotPackDetailScreen()),
-          ),
-        ),
-        const SizedBox(height: 14),
-        SizedBox(
-          height: 230,
-          child: MenuPackCard(
-            title: 'RECTANGLE PACK',
-            subtitle: '100 PUZZLES',
-            completedPuzzles: AppStore.completedInRange('r', 0, 100),
-            totalPuzzles: 100,
-            shapeType: PackShapeType.rectangle,
-            onPlay: () {},
-            onHome: () {
-              Navigator.push(context, MaterialPageRoute(
-                builder: (context) => const PuzzleSelectorScreen(
-                  packName: 'RECTANGLE', totalPuzzles: 100, idPrefix: 'r', idOffset: 0),
-              ));
-            },
-          ),
-        ),
-        // Holiday pack at BOTTOM when not yet unlocked
-        if (DateTime.now().isBefore(kHolidayPackUnlockDate)) ...[
-          const SizedBox(height: 14),
-          const HolidayPackBanner(),
-        ],
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                decoration: BoxDecoration(
-                    color: const Color(0xFF2C2C2C),
-                    borderRadius: BorderRadius.circular(16)),
-                child: Center(
-                  child: Text('MORE PUZZLES COMING SOON!',
-                      style: GoogleFonts.dmSans(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 0.5)),
+                  ],
                 ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-      ],
-    ),
-  ),
-),
+              const SizedBox(width: 14),
+              PreviewGridPanel(gridSize: gridSize, size: panelSize),
             ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class PreviewGridPanel extends StatelessWidget {
+  final int gridSize;
+  final double size;
+  const PreviewGridPanel({super.key, required this.gridSize, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = 4.0;
+    final cellSize = (size - 16 - gap * (gridSize - 1)) / gridSize;
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFd9d9d9),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(gridSize, (row) => Padding(
+          padding: EdgeInsets.only(bottom: row < gridSize - 1 ? gap : 0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(gridSize, (col) => Padding(
+              padding: EdgeInsets.only(right: col < gridSize - 1 ? gap : 0),
+              child: Container(
+                width: cellSize, height: cellSize,
+                decoration: BoxDecoration(
+                  color: (row + col) % 2 == 0 ? Colors.white : const Color(0xFF2C2C2C),
+                  borderRadius: BorderRadius.circular(cellSize * 0.22),
+                ),
+              ),
+            )),
+          ),
+        )),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6SM MENU CARD (used by GameplayScreen's overlay menu)
+// ─────────────────────────────────────────────────────────────────────────────
+class SixSMCard extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool disabled;
+  const SixSMCard({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.disabled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          if (disabled) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Unavailable in Beta Mode', style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+              backgroundColor: const Color(0xFF2C2C2C),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ));
+            return;
+          }
+          onTap();
+        },
+        child: Opacity(
+          opacity: disabled ? 0.4 : 1.0,
+          child: Container(
+            height: 160,
+            decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(20)),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(label, style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white)),
+                    ),
+                    if (disabled) const Icon(Icons.lock_rounded, color: Colors.white38, size: 16),
+                  ],
+                ),
+                Center(child: Icon(icon, size: 56, color: const Color(0xFF555555))),
+              ],
+            ),
           ),
         ),
       ),
@@ -6936,7 +7008,284 @@ Expanded(
   }
 }
 
--e \n\n// ===== FILE: lib/screens/puzzles/pack_cards.dart =====
+// ─────────────────────────────────────────────────────────────────────────────
+// PUZZLES MENU PACK CARD (Pilot / Rectangle / Beta)
+// ─────────────────────────────────────────────────────────────────────────────
+enum PackShapeType { square, rectangle, circle, hexagon }
+
+class MenuPackCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final int completedPuzzles;
+  final int totalPuzzles;
+  final PackShapeType shapeType;
+  final VoidCallback onPlay;
+  final VoidCallback onHome;
+
+  const MenuPackCard({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.completedPuzzles,
+    required this.totalPuzzles,
+    required this.shapeType,
+    required this.onPlay,
+    required this.onHome,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = totalPuzzles > 0 ? completedPuzzles / totalPuzzles : 0.0;
+    final pct = (progress * 100).toInt();
+
+    final int gridCols = shapeType == PackShapeType.rectangle ? 2 : 2;
+    final int gridRows = shapeType == PackShapeType.rectangle ? 3 : 2;
+
+    Widget gridPreview = Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFD9D9D9),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(gridRows, (row) => Padding(
+          padding: EdgeInsets.only(bottom: row < gridRows - 1 ? 6 : 0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(gridCols, (col) => Padding(
+              padding: EdgeInsets.only(right: col < gridCols - 1 ? 6 : 0),
+              child: Container(
+                width: 22, height: 22,
+                decoration: BoxDecoration(
+                  color: (row + col) % 2 == 0 ? Colors.white : const Color(0xFF2C2C2C),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+            )),
+          ),
+        )),
+      ),
+    );
+
+    return Container(
+      decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(24)),
+      child: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  gridPreview,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title,
+                          style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                        const SizedBox(height: 4),
+                        Text(subtitle,
+                          style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white54)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Stack(
+              children: [
+                Container(
+                  height: 28,
+                  decoration: BoxDecoration(color: const Color(0xFF444444), borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    children: [
+                      if (pct > 0)
+                        Expanded(
+                          flex: pct,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD465),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      Expanded(flex: 100 - pct, child: const SizedBox()),
+                    ],
+                  ),
+                ),
+                Positioned.fill(
+                  child: Center(
+                    child: Text('$pct%',
+                      style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black54)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            height: 52,
+            decoration: const BoxDecoration(
+              color: Color(0xFF222222),
+              borderRadius: BorderRadius.only(bottomLeft: Radius.circular(24), bottomRight: Radius.circular(24)),
+            ),
+            child: Row(
+              children: [
+                Expanded(child: IconButton(icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28), onPressed: onPlay)),
+                Container(width: 1, height: 24, color: const Color(0xFF333333)),
+                Expanded(child: IconButton(icon: const Icon(Icons.home_rounded, color: Colors.white, size: 24), onPressed: onHome)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOCKED PACK CARD (Pilot / Rectangle when Beta Mode is on)
+// ─────────────────────────────────────────────────────────────────────────────
+class LockedPackCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  const LockedPackCard({super.key, required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(color: const Color(0xFFEFEFEF), borderRadius: BorderRadius.circular(24)),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.lock_rounded, color: Colors.black26, size: 32),
+          const SizedBox(height: 10),
+          Text(title, style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black38)),
+          const SizedBox(height: 2),
+          Text(subtitle, style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black26)),
+          const SizedBox(height: 8),
+          Text('LOCKED IN BETA', style: GoogleFonts.dmSans(
+            fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black26, letterSpacing: 1)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HOLIDAY PACK BANNER
+// ─────────────────────────────────────────────────────────────────────────────
+class HolidayPackBanner extends StatelessWidget {
+  const HolidayPackBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final unlockDate = kHolidayPackUnlockDate;
+    final now = DateTime.now();
+    final isUnlocked = !now.isBefore(unlockDate);
+    final daysLeft = unlockDate.difference(now).inDays + 1;
+    final done = AppStore.completedInRange('x', 0, 25);
+
+    if (isUnlocked) {
+      return GestureDetector(
+        onTap: () => Navigator.push(context, MaterialPageRoute(
+          builder: (_) => const PuzzleSelectorScreen(
+            packName: 'Holiday', totalPuzzles: 25, idPrefix: 'x', idOffset: 0),
+        )),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1a472a), Color(0xFF2d6a2f)],
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              const Text('🎄', style: TextStyle(fontSize: 28)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('HOLIDAY PACK', style: GoogleFonts.dmSans(
+                      fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                    Text('25 festive puzzles', style: GoogleFonts.dmSans(
+                      fontSize: 13, color: Colors.white60)),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: done / 25,
+                        backgroundColor: Colors.white24,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD465)),
+                        minHeight: 5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('$done / 25 completed', style: GoogleFonts.dmSans(
+                      fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white54)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Icon(Icons.chevron_right_rounded, color: Colors.white38),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFEFEF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+      ),
+      child: Row(
+        children: [
+          Text('🎄', style: TextStyle(fontSize: 28, color: Colors.black.withValues(alpha: 0.25))),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('HOLIDAY PACK', style: GoogleFonts.dmSans(
+                  fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black38)),
+                Text('Unlocks December 10, 2026', style: GoogleFonts.dmSans(
+                  fontSize: 13, color: Colors.black38)),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C2C2C),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text('$daysLeft', style: GoogleFonts.dmSans(
+                fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, height: 1)),
+              Text('days', style: GoogleFonts.dmSans(
+                fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white54)),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+}-e \n\n// ===== FILE: lib/screens/puzzles/pack_cards.dart =====
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -10888,6 +11237,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
+import 'package:folds/core/constants.dart';
 
 class FoldCompleteAnimator extends StatefulWidget {
   final double maxWidth;
@@ -10982,7 +11332,9 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
 
   String get _shareText {
     final cleanTime = widget.timeDisplay.split('.').first;
-    return 'Folds\n#${widget.puzzleShareNumber} ${widget.puzzleTitle}\n$cleanTime, ${widget.moves}/${widget.par}\nhttps://folds.jaydev.games/puzzles/${widget.packPath}/${widget.puzzleShareNumber}';
+    // Beta puzzles share under a distinct app label instead of "Folds".
+    final appLabel = widget.puzzleId.startsWith(kBetaPuzzlePrefix) ? 'Folds Beta v0.3' : 'Folds';
+    return '$appLabel\n#${widget.puzzleShareNumber} ${widget.puzzleTitle}\n$cleanTime, ${widget.moves}/${widget.par}\nhttps://folds.jaydev.games/puzzles/${widget.packPath}/${widget.puzzleShareNumber}';
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
+import 'package:folds/core/constants.dart';
 
 class FoldCompleteAnimator extends StatefulWidget {
   final double maxWidth;
@@ -98,7 +99,9 @@ class FoldCompleteAnimatorState extends State<FoldCompleteAnimator> with TickerP
 
   String get _shareText {
     final cleanTime = widget.timeDisplay.split('.').first;
-    return 'Folds\n#${widget.puzzleShareNumber} ${widget.puzzleTitle}\n$cleanTime, ${widget.moves}/${widget.par}\nhttps://folds.jaydev.games/puzzles/${widget.packPath}/${widget.puzzleShareNumber}';
+    // Beta puzzles share under a distinct app label instead of "Folds".
+    final appLabel = widget.puzzleId.startsWith(kBetaPuzzlePrefix) ? 'Folds Beta v0.3' : 'Folds';
+    return '$appLabel\n#${widget.puzzleShareNumber} ${widget.puzzleTitle}\n$cleanTime, ${widget.moves}/${widget.par}\nhttps://folds.jaydev.games/puzzles/${widget.packPath}/${widget.puzzleShareNumber}';
   }
 
   @override

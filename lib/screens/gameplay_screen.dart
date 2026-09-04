@@ -35,7 +35,7 @@ import 'package:folds/widgets/gameplay/game_over_crack.dart';
 // GAMEPLAY SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
 class GameplayScreen extends StatefulWidget {
-  final String? initialPuzzleId; // Null defaults to daily
+  final String? initialPuzzleId; // Null defaults to daily (or the Beta demo screen)
   const GameplayScreen({super.key, this.initialPuzzleId});
   @override
   State<GameplayScreen> createState() => GameplayScreenState();
@@ -45,6 +45,7 @@ class GameplayScreenState extends State<GameplayScreen> {
   bool _menuOpen = false;
   bool _menuVisible = false;
   bool _paused = false;
+  bool _showBetaDemo = false; // Beta Mode: blank "You Are In Demo Mode" landing screen
   late Stopwatch _stopwatch;
   late Timer _timer;
   String _timeDisplay = '00:00';
@@ -79,6 +80,18 @@ class GameplayScreenState extends State<GameplayScreen> {
     _startTimer();
     AudioService.startMusic();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Beta Mode: the default landing (no explicit puzzle id) is a blank
+      // demo screen instead of Pilot #1 / today's daily. Puzzles opened
+      // explicitly (Beta Pack included) still load and play normally.
+      if (kBetaMode && widget.initialPuzzleId == null) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _showBetaDemo = true;
+        });
+        return;
+      }
+
       if (widget.initialPuzzleId != null) {
         _requestedId = widget.initialPuzzleId!;
         _loadPuzzle(widget.initialPuzzleId!);
@@ -315,6 +328,9 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     } else if (_id.startsWith('r')) {
       final n = _id.replaceAll(RegExp(r'^[a-z]+'), '');
       return 'Rectangle #$n';
+    } else if (_id.startsWith(kBetaPuzzlePrefix)) {
+      final n = _id.replaceAll(RegExp(r'^[a-z]+'), '');
+      return 'Beta #$n';
     }
     final n = _id.replaceAll(RegExp(r'^[a-z]+'), '');
     return '#$n $_title';
@@ -340,7 +356,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     final prefix = _id.replaceAll(RegExp(r'[0-9]'), '');
     final num = int.tryParse(_id.replaceAll(RegExp(r'[^0-9]'), ''));
     if (num == null) return null;
-    final maxes = {'p': 100, 'r': 100, 'x': 25};
+    final maxes = {'p': 100, 'r': 100, 'x': 25, kBetaPuzzlePrefix: kBetaPuzzleCount};
     final max = maxes[prefix] ?? 0;
     if (num >= max) return null;
     return '$prefix${num + 1}';
@@ -351,6 +367,7 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
     if (_id.startsWith('d')) return 'daily';
     if (_id.startsWith('p')) return 'pilot';
     if (_id.startsWith('r')) return 'rectangle';
+    if (_id.startsWith(kBetaPuzzlePrefix)) return 'beta';
     return 'puzzles';
   }
 
@@ -391,6 +408,23 @@ Future<void> _loadPuzzle(String id, {bool forcePlay = false}) async {
   _timer.cancel();
   if (AppSettings.haptic) HapticFeedback.heavyImpact();
   AudioService.solve();
+
+  // ── BETA MODE: beta puzzles are practice-only. No XP, no cloud sync,
+  // no streak impact, no achievement unlocks — just a local completion
+  // flag so the Beta Pack screen can show progress/checkmarks.
+  final isBetaPuzzle = _id.startsWith(kBetaPuzzlePrefix);
+  if (isBetaPuzzle) {
+    AppStore.markCompleted(_id);
+    if (_moves <= _par) AppStore.markParCompleted(_id);
+    if (_moves <= _par) _showConfetti();
+    if (!mounted) return;
+    setState(() {
+      _solved = true;
+      _earnedXP = 0;
+      _hideXPOnComplete = true; // hides the XP stat entirely on the results card
+    });
+    return;
+  }
 
   void tryUnlock(String id) {
     if (!AppStore.isUnlocked(id)) {
@@ -694,6 +728,7 @@ final cellSize = min(cellSizeW, cellSizeH);
   void _openMenu() {
     setState(() => _menuOpen = true);
     Future.delayed(const Duration(milliseconds: 20), () {
+      if (!mounted) return;
       setState(() => _menuVisible = true);
     });
   }
@@ -701,12 +736,197 @@ final cellSize = min(cellSizeW, cellSizeH);
   void _closeMenu() {
     setState(() => _menuVisible = false);
     Future.delayed(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
       setState(() => _menuOpen = false);
     });
   }
 
+  // ── 6SM overlay menu — extracted so both normal gameplay and the Beta
+  // Mode demo screen can show the exact same menu. ──────────────────────
+  Widget _buildMenuOverlay() {
+    return AnimatedOpacity(
+      opacity: _menuVisible ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      child: GestureDetector(
+        onTap: _closeMenu,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+          child: Container(
+            color: Colors.white.withValues(alpha: 0.3),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      _closeMenu();
+                      Future.delayed(const Duration(milliseconds: 260), () {
+                        pushFade(context, const LeaderboardScreen());
+                      });
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(20)),
+                      child: Row(children: [
+                        const Icon(Icons.leaderboard_rounded,
+                          color: Color(0xFFFFD465), size: 20),
+                        const SizedBox(width: 12),
+                        Text('LEADERBOARD', style: GoogleFonts.dmSans(
+                          fontSize: 16, fontWeight: FontWeight.w800,
+                          color: Colors.white, letterSpacing: 0.5)),
+                        const Spacer(),
+                        const Icon(Icons.chevron_right_rounded,
+                          color: Colors.white38, size: 20),
+                      ]),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      SixSMCard(
+                        label: 'Puzzles',
+                          icon: Icons.extension_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const PuzzlesMenuScreen());
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        SixSMCard(
+                          label: 'Profile',
+                          icon: Icons.account_circle_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const ProfileScreen());
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        SixSMCard(
+                          label: 'Store',
+                          icon: Icons.shopping_basket_rounded,
+                          disabled: kBetaMode,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const StoreScreen());
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        SixSMCard(
+                          label: 'Settings',
+                          icon: Icons.settings_rounded,
+                          disabled: kBetaMode,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const SettingsScreen());
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        SixSMCard(
+                          label: 'Socials',
+                          icon: Icons.favorite_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const SocialsScreen());
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        SixSMCard(
+                          label: 'Credits',
+                          icon: Icons.handshake_rounded,
+                          onTap: () {
+                            _closeMenu();
+                            Future.delayed(const Duration(milliseconds: 260), () {
+                              pushFade(context, const CreditsScreen());
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Beta Mode demo landing screen ─────────────────────────────────────
+  Widget _buildBetaDemoScreen() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: _openMenu,
+                    child: Container(
+                      width: 40, height: 40,
+                      decoration: const BoxDecoration(color: Color(0xFFE8E8E8), shape: BoxShape.circle),
+                      child: ClipOval(child: CustomPaint(painter: HomeIconPainter())),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Text(
+                'YOU ARE IN DEMO MODE',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.dmSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black26,
+                  letterSpacing: 1,
+                ),
+              ),
+            ),
+          ),
+          if (_menuOpen) _buildMenuOverlay(),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // ── Beta Mode demo landing screen ───────────────────────────────
+    if (_showBetaDemo) {
+      return _buildBetaDemoScreen();
+    }
+
     // ── Loading screen ────────────────────────────────────────────
     if (_loading) {
       return Scaffold(
@@ -1170,135 +1390,7 @@ final cellSize = min(cellSizeW, cellSizeH);
             ),
 
             // ── 6SM overlay ───────────────────────────────────────
-            if (_menuOpen)
-              AnimatedOpacity(
-                opacity: _menuVisible ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                child: GestureDetector(
-                  onTap: _closeMenu,
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                    child: Container(
-                      color: Colors.white.withValues(alpha: 0.3),
-                      child: SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            GestureDetector(
-                              onTap: () {
-                                _closeMenu();
-                                Future.delayed(const Duration(milliseconds: 260), () {
-                                  pushFade(context, const LeaderboardScreen());
-                                });
-                              },
-                              child: Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2C2C2C),
-                                  borderRadius: BorderRadius.circular(20)),
-                                child: Row(children: [
-                                  const Icon(Icons.leaderboard_rounded,
-                                    color: Color(0xFFFFD465), size: 20),
-                                  const SizedBox(width: 12),
-                                  Text('LEADERBOARD', style: GoogleFonts.dmSans(
-                                    fontSize: 16, fontWeight: FontWeight.w800,
-                                    color: Colors.white, letterSpacing: 0.5)),
-                                  const Spacer(),
-                                  const Icon(Icons.chevron_right_rounded,
-                                    color: Colors.white38, size: 20),
-                                ]),
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                SixSMCard(
-                                  label: 'Puzzles',
-                                    icon: Icons.extension_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const PuzzlesMenuScreen());
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SixSMCard(
-                                    label: 'Profile',
-                                    icon: Icons.account_circle_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const ProfileScreen());
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  SixSMCard(
-                                    label: 'Store',
-                                    icon: Icons.shopping_basket_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const StoreScreen());
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SixSMCard(
-                                    label: 'Settings',
-                                    icon: Icons.settings_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const SettingsScreen());
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  SixSMCard(
-                                    label: 'Socials',
-                                    icon: Icons.favorite_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const SocialsScreen());
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 12),
-                                  SixSMCard(
-                                    label: 'Credits',
-                                    icon: Icons.handshake_rounded,
-                                    onTap: () {
-                                      _closeMenu();
-                                      Future.delayed(const Duration(milliseconds: 260), () {
-                                        pushFade(context, const CreditsScreen());
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            if (_menuOpen) _buildMenuOverlay(),
           ],
             ),
           ),
@@ -1307,4 +1399,3 @@ final cellSize = min(cellSizeW, cellSizeH);
     );
   }
 }
-

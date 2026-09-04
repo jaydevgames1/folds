@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:folds/core/constants.dart';
 import 'package:folds/state/app_store.dart';
 import 'package:folds/screens/settings/dev/dev_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -80,6 +81,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                     child: ProfileTabBar(
                       selected: _tab,
                       onChanged: (i) => setState(() => _tab = i),
+                      disabledIndices: kBetaMode ? const {1, 2} : const {},
                     ),
                   ),
                   
@@ -153,7 +155,12 @@ class ProfileScreenState extends State<ProfileScreen> {
 class ProfileTabBar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onChanged;
-  const ProfileTabBar({required this.selected, required this.onChanged});
+  final Set<int> disabledIndices;
+  const ProfileTabBar({
+    required this.selected,
+    required this.onChanged,
+    this.disabledIndices = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -167,9 +174,22 @@ class ProfileTabBar extends StatelessWidget {
       child: Row(
         children: List.generate(labels.length, (i) {
           final isSelected = i == selected;
+          final isDisabled = disabledIndices.contains(i);
           return Expanded(
             child: GestureDetector(
-              onTap: () => onChanged(i),
+              onTap: () {
+                if (isDisabled) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Not available in Beta Mode',
+                      style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                    backgroundColor: const Color(0xFF2C2C2C),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ));
+                  return;
+                }
+                onChanged(i);
+              },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(vertical: 10),
@@ -178,13 +198,25 @@ class ProfileTabBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(
-                  child: Text(labels[i],
-                    style: GoogleFonts.dmSans(
-                      fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                      color: isSelected ? Colors.black : Colors.black38,
-                      letterSpacing: 0.5,
-                    )),
+                  child: Opacity(
+                    opacity: isDisabled ? 0.4 : 1.0,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isDisabled) const Padding(
+                          padding: EdgeInsets.only(right: 4),
+                          child: Icon(Icons.lock_rounded, size: 11, color: Colors.black38),
+                        ),
+                        Text(labels[i],
+                          style: GoogleFonts.dmSans(
+                            fontSize: 12,
+                            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                            color: isSelected ? Colors.black : Colors.black38,
+                            letterSpacing: 0.5,
+                          )),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -194,4 +226,3 @@ class ProfileTabBar extends StatelessWidget {
     );
   }
 }
-
